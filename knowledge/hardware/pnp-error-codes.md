@@ -10,7 +10,7 @@ Windows Plug and Play (PnP) subsystem automatically detects, identifies, and con
 To audit all hardware devices reporting errors without fetching thousands of healthy entities into memory, execute a server-side filtered CIM query:
 
 ```powershell
-Get-CimInstance Win32_PnPEntity | Where-Object { $_.ConfigManagerErrorCode -ne 0 } | Select-Object Name, DeviceID, PNPClass, ConfigManagerErrorCode | ConvertTo-Json -Compress
+Get-CimInstance Win32_PnPEntity -Filter "ConfigManagerErrorCode <> 0" | Select-Object Name, DeviceID, PNPClass, ConfigManagerErrorCode | ConvertTo-Json -Compress
 ```
 
 ### Key Attributes:

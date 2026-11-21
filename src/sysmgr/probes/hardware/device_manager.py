@@ -1,6 +1,7 @@
+import asyncio
 import json
 import subprocess
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sysmgr.core.engine import BaseProbe
 from sysmgr.core.models import (
@@ -22,22 +23,25 @@ class DeviceManagerProbe(BaseProbe):
     )
     requires_admin = False
 
-    def _query_error_devices(self) -> List[Dict[str, Any]]:
+    def _query_error_devices(self) -> Optional[List[Dict[str, Any]]]:
         """Queries Windows PnP for entities reporting non-zero ConfigManagerErrorCode."""
         ps_cmd = (
-            "Get-CimInstance Win32_PnPEntity | "
-            "Where-Object { $_.ConfigManagerErrorCode -ne 0 } | "
+            'Get-CimInstance Win32_PnPEntity -Filter "ConfigManagerErrorCode <> 0" | '
             "Select-Object Name, DeviceID, PNPClass, ConfigManagerErrorCode | "
             "ConvertTo-Json -Compress"
         )
         try:
             res = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
                 capture_output=True,
                 text=True,
-                timeout=10,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
             )
-            if res.returncode != 0 or not res.stdout.strip():
+            if res.returncode != 0:
+                return None
+            if not res.stdout.strip():
                 return []
             data = json.loads(res.stdout)
             if isinstance(data, dict):
@@ -52,11 +56,21 @@ class DeviceManagerProbe(BaseProbe):
                 for d in data
             ]
         except Exception:
-            return []
+            return None
 
     async def check(self) -> DiagnosticResult:
         knowledge_refs = ["knowledge/hardware/pnp-error-codes.md"]
-        devices = self._query_error_devices()
+        devices = await asyncio.to_thread(self._query_error_devices)
+
+        if devices is None:
+            return DiagnosticResult(
+                probe_id=self.probe_id,
+                category=self.category,
+                status=DiagnosticStatus.WARN,
+                summary="Unable to query Windows PnP subsystem; command failed or timed out.",
+                details={"error_devices": [], "total_errors": 0},
+                knowledge_refs=knowledge_refs,
+            )
 
         details = {
             "error_devices": devices,

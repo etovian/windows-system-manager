@@ -34,6 +34,7 @@ def test_device_manager_probe_hardware_crash():
             assert "nvidia geforce rtx" in result.summary.lower()
             assert "code 43" in result.summary.lower()
             assert len(result.details["error_devices"]) == 1
+            assert any(r.id == "restart-pnp-device" for r in result.remediations)
 
     asyncio.run(_run())
 
@@ -57,6 +58,63 @@ def test_device_manager_probe_user_disabled_device():
     asyncio.run(_run())
 
 
+def test_device_manager_probe_query_failure():
+    async def _run():
+        probe = DeviceManagerProbe()
+        with patch.object(probe, "_query_error_devices", return_value=None):
+            result = await probe.check()
+            assert result.status == DiagnosticStatus.WARN
+            assert "unable to query" in result.summary.lower()
+            assert result.details["total_errors"] == 0
+
+    asyncio.run(_run())
+
+
+def test_device_manager_probe_mixed_devices():
+    async def _run():
+        probe = DeviceManagerProbe()
+        mock_devices = [
+            {
+                "name": "Virtual Audio Device",
+                "device_id": "ROOT\\MEDIA",
+                "pnp_class": "Media",
+                "code": 22,
+            },
+            {
+                "name": "NVIDIA GeForce RTX",
+                "device_id": "PCI\\VEN_10DE",
+                "pnp_class": "Display",
+                "code": 43,
+            },
+        ]
+        with patch.object(probe, "_query_error_devices", return_value=mock_devices):
+            result = await probe.check()
+            assert result.status == DiagnosticStatus.FAIL
+            assert "nvidia geforce rtx" in result.summary.lower()
+            assert any(r.id == "restart-pnp-device" for r in result.remediations)
+
+    asyncio.run(_run())
+
+
+def test_device_manager_probe_code_28_driver_missing():
+    async def _run():
+        probe = DeviceManagerProbe()
+        mock_devices = [
+            {
+                "name": "PCI Simple Communications Controller",
+                "device_id": "PCI\\VEN_8086",
+                "pnp_class": "System",
+                "code": 28,
+            }
+        ]
+        with patch.object(probe, "_query_error_devices", return_value=mock_devices):
+            result = await probe.check()
+            assert result.status == DiagnosticStatus.FAIL
+            assert any(r.id == "install-pnp-driver" for r in result.remediations)
+
+    asyncio.run(_run())
+
+
 def test_device_manager_query_error_devices_parsing():
     probe = DeviceManagerProbe()
     mock_json = (
@@ -65,6 +123,7 @@ def test_device_manager_query_error_devices_parsing():
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout=mock_json)
         devices = probe._query_error_devices()
+        assert devices is not None
         assert len(devices) == 1
         assert devices[0]["name"] == "Test Device"
         assert devices[0]["code"] == 10
@@ -77,13 +136,30 @@ def test_device_manager_query_error_devices_single_object():
     with patch("subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout=mock_json)
         devices = probe._query_error_devices()
+        assert devices is not None
         assert len(devices) == 1
         assert devices[0]["name"] == "Single Device"
         assert devices[0]["code"] == 28
+
+
+def test_device_manager_query_error_devices_empty_clean():
+    probe = DeviceManagerProbe()
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stdout="   \n")
+        devices = probe._query_error_devices()
+        assert devices == []
+
+
+def test_device_manager_query_error_devices_nonzero_returncode():
+    probe = DeviceManagerProbe()
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="Error")
+        devices = probe._query_error_devices()
+        assert devices is None
 
 
 def test_device_manager_query_error_devices_failure():
     probe = DeviceManagerProbe()
     with patch("subprocess.run", side_effect=Exception("Timeout")):
         devices = probe._query_error_devices()
-        assert devices == []
+        assert devices is None
