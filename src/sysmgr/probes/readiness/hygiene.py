@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import os
 from pathlib import Path
 import time
 from typing import Any, Dict, List
@@ -38,13 +39,15 @@ class SystemHygieneProbe(BaseProbe):
         if winreg is None:
             return flags
 
+        sam = winreg.KEY_READ | getattr(winreg, "KEY_WOW64_64KEY", 0)
+
         # 1. Component-Based Servicing: RebootPending
         try:
             with winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE,
                 r"SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
                 0,
-                winreg.KEY_READ,
+                sam,
             ):
                 flags.append("Component Based Servicing (RebootPending)")
         except (FileNotFoundError, OSError, PermissionError):
@@ -56,7 +59,7 @@ class SystemHygieneProbe(BaseProbe):
                 winreg.HKEY_LOCAL_MACHINE,
                 r"SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
                 0,
-                winreg.KEY_READ,
+                sam,
             ):
                 flags.append("Windows Update (RebootRequired)")
         except (FileNotFoundError, OSError, PermissionError):
@@ -68,10 +71,10 @@ class SystemHygieneProbe(BaseProbe):
                 winreg.HKEY_LOCAL_MACHINE,
                 r"SYSTEM\CurrentControlSet\Control\Session Manager",
                 0,
-                winreg.KEY_READ,
+                sam,
             ) as key:
                 val, _ = winreg.QueryValueEx(key, "PendingFileRenameOperations")
-                if val:
+                if val and any(line.strip() for line in val if isinstance(line, str)):
                     flags.append("Session Manager (PendingFileRenameOperations)")
         except (FileNotFoundError, OSError, PermissionError):
             pass
@@ -81,11 +84,12 @@ class SystemHygieneProbe(BaseProbe):
     def _get_uptime_days(self) -> float:
         """Calculates system continuous uptime in days."""
         boot_time = psutil.boot_time()
-        return (datetime.now().timestamp() - boot_time) / 86400.0
+        return (time.time() - boot_time) / 86400.0
 
     def _check_crash_dumps(self, days: int = 7) -> List[str]:
-        """Inspects C:\\Windows\\Minidump for crash dumps generated within the specified day window."""
-        minidump_dir = Path(r"C:\Windows\Minidump")
+        """Inspects Minidump directory for crash dumps generated within the specified day window."""
+        sys_root = os.environ.get("SystemRoot", r"C:\Windows")
+        minidump_dir = Path(sys_root) / "Minidump"
         if not minidump_dir.exists() or not minidump_dir.is_dir():
             return []
 
