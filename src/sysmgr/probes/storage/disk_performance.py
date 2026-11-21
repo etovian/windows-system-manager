@@ -85,8 +85,10 @@ class DiskPerformanceProbe(BaseProbe):
     async def check(self) -> DiagnosticResult:
         knowledge_refs = ["knowledge/storage/disk-io-bottlenecks.md"]
 
-        counters = await asyncio.to_thread(self._get_io_counters)
-        top_processes = await asyncio.to_thread(self._get_top_io_processes)
+        counters, top_processes = await asyncio.gather(
+            asyncio.to_thread(self._get_io_counters),
+            asyncio.to_thread(self._get_top_io_processes),
+        )
 
         if counters is None:
             return DiagnosticResult(
