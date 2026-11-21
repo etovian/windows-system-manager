@@ -77,3 +77,22 @@ def test_cli_knowledge_list():
     result = runner.invoke(app, ["knowledge"])
     assert result.exit_code == 0
     assert "bluetooth-troubleshooting.md" in result.stdout or "Runbooks" in result.stdout
+
+
+def test_default_engine_registration():
+    from sysmgr.probes import create_default_engine
+
+    engine = create_default_engine()
+    assert len(engine.probes) == 8
+    expected_ids = {
+        "hardware.bluetooth",
+        "hardware.device_manager",
+        "hardware.network",
+        "storage.disk_space",
+        "storage.disk_health",
+        "storage.disk_performance",
+        "readiness.tpm_secure_boot",
+        "readiness.hygiene",
+    }
+    assert set(engine.probes.keys()) == expected_ids
+
