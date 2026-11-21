@@ -28,18 +28,16 @@ class DiskHealthProbe(BaseProbe):
         """Queries physical storage drives using Get-PhysicalDisk and MSStorageDriver_FailurePredictStatus."""
         ps_cmd = (
             "try { "
-            "  $smartMap = @{}; "
+            "  $smartPredict = $false; "
             "  try { "
-            "    $wmi = Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction Stop; "
-            "    foreach ($w in $wmi) { "
-            "      $smartMap[$w.InstanceName] = [bool]$w.PredictFailure; "
-            "    } "
+            "    $wmi = Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictStatus -ErrorAction SilentlyContinue; "
+            "    if ($wmi -and ($wmi | Where-Object { $_.PredictFailure -eq $true })) { $smartPredict = $true; } "
             "  } catch {} "
             "  $disks = Get-PhysicalDisk -ErrorAction Stop; "
             "  $results = @(); "
             "  foreach ($d in $disks) { "
             "    $predictFailure = $false; "
-            "    if ($d.OperationalStatus -contains 'Predictive Failure') { $predictFailure = $true } "
+            "    if (($d.OperationalStatus -contains 'Predictive Failure') -or $smartPredict) { $predictFailure = $true } "
             "    $results += [PSCustomObject]@{ "
             "      DeviceId = [string]$d.DeviceId; "
             "      Model = [string]$d.FriendlyName; "
@@ -153,6 +151,17 @@ class DiskHealthProbe(BaseProbe):
                 status=DiagnosticStatus.WARN,
                 summary=summary,
                 details={"disks": disks},
+                remediations=[],
+                knowledge_refs=knowledge_refs,
+            )
+
+        if not disks:
+            return DiagnosticResult(
+                probe_id=self.probe_id,
+                category=self.category,
+                status=DiagnosticStatus.INFO,
+                summary="No physical storage drives detected.",
+                details={"disks": []},
                 remediations=[],
                 knowledge_refs=knowledge_refs,
             )
