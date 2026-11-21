@@ -96,3 +96,47 @@ def test_default_engine_registration():
     }
     assert set(engine.probes.keys()) == expected_ids
 
+
+
+def test_cli_check_command():
+    with patch("sysmgr.cli.create_default_engine") as mock_engine_factory:
+        from sysmgr.core.engine import ProbeEngine, BaseProbe
+
+        engine = ProbeEngine()
+
+        class MockProbe(BaseProbe):
+            probe_id = "test.single"
+            name = "Single Probe"
+            category = "test"
+            description = "Single probe description"
+
+            async def check(self):
+                return DiagnosticResult(
+                    probe_id=self.probe_id,
+                    category=self.category,
+                    status=DiagnosticStatus.PASS,
+                    summary="Single check ok",
+                )
+
+        engine.register(MockProbe())
+        mock_engine_factory.return_value = engine
+
+        result = runner.invoke(app, ["check", "test.single"])
+        assert result.exit_code == 0
+        assert "Single check ok" in result.stdout
+
+        result_unknown = runner.invoke(app, ["check", "nonexistent.probe"])
+        assert result_unknown.exit_code == 1
+        assert "not found" in result_unknown.stdout.lower()
+
+
+def test_probes_all_exports():
+    import sysmgr.probes as p
+    from sysmgr.core.engine import BaseProbe
+
+    for name in p.__all__:
+        obj = getattr(p, name)
+        if name != "create_default_engine":
+            assert issubclass(obj, BaseProbe)
+        else:
+            assert callable(obj)
