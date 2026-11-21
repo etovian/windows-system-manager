@@ -58,16 +58,17 @@ class NetworkAdapterProbe(BaseProbe):
         return interfaces
 
     def _test_dns(self, host: str = "dns.google", port: int = 53, timeout: float = 3.0) -> bool:
-        """Tests DNS resolution or connectivity to an external host."""
+        """Tests DNS resolution using the system resolver, with connection verification fallback."""
+        try:
+            res = socket.getaddrinfo(host, None)
+            if res:
+                return True
+        except (socket.gaierror, OSError):
+            pass
+
         try:
             with socket.create_connection((host, port), timeout=timeout):
                 return True
-        except OSError:
-            try:
-                res = socket.getaddrinfo(host, port)
-                return bool(res)
-            except Exception:
-                return False
         except Exception:
             return False
 
