@@ -10,16 +10,27 @@ from sysmgr.remediations.registry import RemediationRegistry, default_remediatio
 from sysmgr.remediations.rollback import RollbackManager
 
 
+def is_user_admin() -> bool:
+    """Check if current process has elevated Administrator privileges."""
+    try:
+        import ctypes
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except Exception:
+        return False
+
+
 class RemediationRunner:
     def __init__(
         self,
         registry: Optional[RemediationRegistry] = None,
         rollback_manager: Optional[RollbackManager] = None,
         probe_engine: Optional[ProbeEngine] = None,
+        admin_check_fn: Optional[callable] = None,
     ):
         self.registry = registry or default_remediation_registry
         self.rollback_manager = rollback_manager or RollbackManager()
         self.probe_engine = probe_engine or create_default_engine()
+        self.admin_check_fn = admin_check_fn or is_user_admin
 
     async def execute(self, action_id: str, ctx: RemediationContext) -> RemediationResult:
         handler_entry = self.registry.get(action_id)
@@ -30,13 +41,39 @@ class RemediationRunner:
                 error=f"No remediation registered for '{action_id}'.",
             )
 
-        # Dry run simulation
+        # Pre-flight check: verify Administrator status upfront if action requires admin
+        if handler_entry.requires_admin and not ctx.dry_run and not ctx.elevated:
+            if not self.admin_check_fn():
+                return RemediationResult(
+                    action_id=action_id,
+                    success=False,
+                    error=f"Remediation '{action_id}' requires elevated Administrator privileges.",
+                )
+
+        # Dry run simulation (executes handler simulation logic without side-effects or rollback)
         if ctx.dry_run:
-            return RemediationResult(
-                action_id=action_id,
-                success=True,
-                changes_made=[f"[DRY RUN] Would execute {handler_entry.description} (Scope: {handler_entry.scope.value})"],
-            )
+            try:
+                changes = await handler_entry.handler(ctx)
+                formatted_changes = []
+                for chg in changes:
+                    if chg.lower().startswith("[dry run]"):
+                        clean_chg = chg[len("[dry run]"):].strip()
+                        formatted_changes.append(f"[DRY RUN] [{handler_entry.scope.value}] {clean_chg}")
+                    else:
+                        formatted_changes.append(f"[DRY RUN] [{handler_entry.scope.value}] {chg}")
+                if not formatted_changes:
+                    formatted_changes = [f"[DRY RUN] [{handler_entry.scope.value}] Would execute {handler_entry.description}"]
+                return RemediationResult(
+                    action_id=action_id,
+                    success=True,
+                    changes_made=formatted_changes,
+                )
+            except Exception as e:
+                return RemediationResult(
+                    action_id=action_id,
+                    success=False,
+                    error=f"Dry-run simulation failed: {e}",
+                )
 
         # Persistent action: Generate and commit rollback plan (fail closed if missing)
         rollback_file_path = None

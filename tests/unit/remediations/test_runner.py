@@ -197,7 +197,31 @@ def test_register_rollback_unknown_action_raises_key_error():
 
 
 @pytest.mark.asyncio
-async def test_runner_persistent_without_rollback_generator_fails_closed():
+async def test_runner_requires_admin_preflight_check():
+    reg = RemediationRegistry()
+
+    @reg.register(
+        action_id="admin-only-action",
+        description="Requires administrator",
+        scope=RemediationScope.TRANSIENT,
+        risk_level=RiskLevel.CONFIRMATION_REQUIRED,
+        requires_admin=True,
+    )
+    async def admin_handler(ctx: RemediationContext):
+        return ["Admin changes"]
+
+    # When not admin and not ctx.elevated, runner must reject execution upfront
+    runner = RemediationRunner(registry=reg, admin_check_fn=lambda: False)
+    res = await runner.execute("admin-only-action", RemediationContext())
+
+    assert res.success is False
+    assert "requires elevated Administrator privileges" in res.error
+
+    # When ctx.elevated is True, execution proceeds
+    res_elevated = await runner.execute("admin-only-action", RemediationContext(elevated=True))
+    assert res_elevated.success is True
+    assert "Admin changes" in res_elevated.changes_made
+
     reg = RemediationRegistry()
 
     @reg.register(
