@@ -1,6 +1,7 @@
 """Windows file operations and safety gates for disk management."""
 
 import os
+import shutil
 import subprocess
 from typing import Any, Dict
 
@@ -12,7 +13,9 @@ def is_protected_system_path(path: str) -> bool:
     if not path or not path.strip():
         return True
 
-    normalized = os.path.normpath(path).strip()
+    # Resolve relative paths (e.g. "..\Windows") to absolute paths first
+    resolved = os.path.abspath(path)
+    normalized = os.path.normpath(resolved).strip()
     drive, rest = os.path.splitdrive(normalized)
 
     clean_rest = rest.replace("/", "\\").strip("\\")
@@ -28,18 +31,24 @@ def is_protected_system_path(path: str) -> bool:
     if any(p in (".git", ".svn", ".hg") for p in parts):
         return True
 
-    # Protected root directory branches
+    # Protected root directory branches (including short 8.3 names)
     protected_roots = {
         "windows",
         "program files",
         "program files (x86)",
         "programdata",
+        "progra~1",
+        "progra~2",
         "$recycle.bin",
         "system volume information",
         "recovery",
         "boot",
     }
     if parts[0] in protected_roots:
+        return True
+
+    # Protect top-level user directories root (e.g. C:\Users) while allowing specific user contents
+    if len(parts) == 1 and parts[0] in ("users", "documents and settings"):
         return True
 
     # Critical root files
@@ -57,7 +66,7 @@ def is_protected_system_path(path: str) -> bool:
     for var in ("SystemRoot", "windir", "ProgramFiles", "ProgramFiles(x86)", "ProgramData"):
         env_val = os.environ.get(var)
         if env_val:
-            norm_env = os.path.normcase(os.path.normpath(env_val))
+            norm_env = os.path.normcase(os.path.normpath(os.path.abspath(env_val)))
             norm_curr = os.path.normcase(normalized)
             if norm_curr == norm_env or norm_curr.startswith(norm_env + os.sep):
                 return True
@@ -67,7 +76,8 @@ def is_protected_system_path(path: str) -> bool:
 
 def execute_file_action(request: ActionRequest) -> ActionResult:
     """Execute a file or directory operation on Windows with safety gates."""
-    norm_path = os.path.normpath(request.path)
+    resolved_path = os.path.abspath(request.path)
+    norm_path = os.path.normpath(resolved_path)
 
     if not os.path.exists(norm_path):
         return ActionResult(
@@ -86,9 +96,11 @@ def execute_file_action(request: ActionRequest) -> ActionResult:
 
         is_dir = os.path.isdir(norm_path)
         method = "DeleteDirectory" if is_dir else "DeleteFile"
+        # Pass path through environment variable to prevent command injection and single-quote syntax errors
+        env = {**os.environ, "SYSMGR_RECYCLE_TARGET": norm_path}
         ps_cmd = (
             f"Add-Type -AssemblyName Microsoft.VisualBasic; "
-            f"[Microsoft.VisualBasic.FileIO.FileSystem]::{method}('{norm_path}', 'OnlyErrorDialogs', 'SendToRecycleBin')"
+            f"[Microsoft.VisualBasic.FileIO.FileSystem]::{method}($env:SYSMGR_RECYCLE_TARGET, 'OnlyErrorDialogs', 'SendToRecycleBin')"
         )
         try:
             subprocess.run(
@@ -97,6 +109,7 @@ def execute_file_action(request: ActionRequest) -> ActionResult:
                 text=True,
                 timeout=15,
                 check=True,
+                env=env,
             )
             return ActionResult(
                 success=True,
@@ -148,7 +161,11 @@ def execute_file_action(request: ActionRequest) -> ActionResult:
     elif action == "terminal":
         try:
             cwd = norm_path if os.path.isdir(norm_path) else os.path.dirname(norm_path) or norm_path
-            subprocess.Popen(["powershell.exe"], cwd=cwd)
+            creation_flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+            if shutil.which("wt.exe"):
+                subprocess.Popen(["wt.exe", "-d", cwd])
+            else:
+                subprocess.Popen(["powershell.exe"], cwd=cwd, creationflags=creation_flags)
             return ActionResult(
                 success=True,
                 message=f"Opened terminal at {cwd}",
