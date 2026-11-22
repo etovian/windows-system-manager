@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>sysmgr - DaisyDisk Visualizer</title>
   <link rel="stylesheet" href="styles.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E<circle cx=%2250%22 cy=%2250%22 r=%2245%22 fill=%22%2329b6f6%22/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2245%22 fill=%22%2329b6f6%22/></svg>">
 </head>
 <body class="daisydisk-theme">
   <!-- Top Navigation Header -->
@@ -50,14 +50,21 @@
       <div class="custom-path-box">
         <h3>Or Scan a Specific Directory</h3>
         <form id="custom-path-form" class="custom-path-form">
-          <input type="text" id="custom-path-input" placeholder="e.g. C:\Users or D:\Projects" autocomplete="off" />
+          <input type="text" id="custom-path-input" placeholder="e.g. C:\Users or C:\dev" autocomplete="off" />
           <button type="submit" class="btn btn-primary" id="btn-scan-path">Scan Directory</button>
         </form>
+        <div class="quick-paths">
+          <span class="quick-label">Quick select:</span>
+          <button type="button" class="btn-quick-path" data-path="C:\Users">C:\Users</button>
+          <button type="button" class="btn-quick-path" data-path="C:\dev">C:\dev</button>
+          <button type="button" class="btn-quick-path" data-path="C:\Program Files">Program Files</button>
+          <button type="button" class="btn-quick-path" data-path="C:\">Entire C:\ Drive</button>
+        </div>
       </div>
     </section>
 
     <!-- View 2: Visualizer View (Sunburst & Top List) -->
-    <section id="visualizer-view" class="view-panel" style="display: none;">
+    <section id="visualizer-view" class="view-panel">
       <div class="visualizer-layout">
         <!-- Left: Sunburst Radial Multi-ring Chart -->
         <div class="sunburst-wrapper">
@@ -88,20 +95,25 @@
     </section>
 
     <!-- View 3: Scanning Progress Modal / Overlay -->
-    <div id="scan-overlay" class="scan-overlay" style="display: none;">
+    <div id="scan-overlay" class="scan-overlay">
       <div class="scan-modal">
         <div class="scan-radar-pulse"></div>
         <h3 id="scan-modal-title">Scanning Directory...</h3>
         <p class="scan-path-label" id="scan-current-path">C:\</p>
         
         <div class="progress-track">
-          <div class="progress-fill" id="scan-progress-bar" style="width: 0%;"></div>
+          <div class="progress-fill" id="scan-progress-bar" style="width: 5%;"></div>
         </div>
 
         <div class="scan-stats-row">
           <span id="scan-files-scanned">0 files</span>
           <span id="scan-bytes-scanned">0 B</span>
           <span id="scan-elapsed">0.0s</span>
+        </div>
+
+        <!-- Live Scanner Activity Ticker -->
+        <div class="scan-log-box" id="scan-log-box">
+          <div class="scan-log-entry active-path">Connecting to scanner...</div>
         </div>
 
         <button id="btn-cancel-scan" class="btn btn-danger">Cancel Scan</button>

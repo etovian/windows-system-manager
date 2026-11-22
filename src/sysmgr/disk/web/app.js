@@ -53,6 +53,7 @@
     topList: document.getElementById("top-list"),
     topListCount: document.getElementById("top-list-count"),
     scanOverlay: document.getElementById("scan-overlay"),
+    scanLogBox: document.getElementById("scan-log-box"),
     scanCurrentPath: document.getElementById("scan-current-path"),
     scanProgressBar: document.getElementById("scan-progress-bar"),
     scanFilesScanned: document.getElementById("scan-files-scanned"),
@@ -236,8 +237,18 @@
     elements.scanBytesScanned.textContent = formatBytes(progress.total_bytes);
     elements.scanElapsed.textContent = `${(progress.elapsed_seconds || 0).toFixed(1)}s`;
 
-    // Estimate progress bar pulse
-    elements.scanProgressBar.style.width = progress.status === "completed" ? "100%" : "65%";
+    if (elements.scanLogBox && progress.current_path) {
+      const entry = document.createElement("div");
+      entry.className = "scan-log-entry";
+      entry.textContent = `Scanning: ${progress.current_path}`;
+      elements.scanLogBox.appendChild(entry);
+      while (elements.scanLogBox.children.length > 8) {
+        elements.scanLogBox.removeChild(elements.scanLogBox.firstChild);
+      }
+      elements.scanLogBox.scrollTop = elements.scanLogBox.scrollHeight;
+    }
+
+    elements.scanProgressBar.style.width = progress.status === "completed" ? "100%" : "70%";
   }
 
   async function cancelScan() {
@@ -275,16 +286,23 @@
     elements.scanFilesScanned.textContent = "0 files";
     elements.scanBytesScanned.textContent = "0 B";
     elements.scanElapsed.textContent = "0.0s";
+    if (elements.scanLogBox) {
+      elements.scanLogBox.innerHTML = `<div class="scan-log-entry active-path">Starting scan on ${escapeHtml(path)}...</div>`;
+    }
+    elements.scanOverlay.style.display = "flex";
     elements.scanOverlay.classList.add("active");
   }
 
   function hideScanOverlay() {
     elements.scanOverlay.classList.remove("active");
+    elements.scanOverlay.style.display = "none";
   }
 
   function switchToVisualizer() {
     elements.drivesView.classList.remove("active");
+    elements.drivesView.style.display = "none";
     elements.visualizerView.classList.add("active");
+    elements.visualizerView.style.display = "flex";
     elements.btnRescan.style.display = "inline-flex";
     elements.btnChangeSource.style.display = "inline-flex";
     elements.breadcrumbContainer.style.display = "flex";
@@ -292,42 +310,46 @@
 
   function switchToDrives() {
     elements.visualizerView.classList.remove("active");
+    elements.visualizerView.style.display = "none";
     elements.drivesView.classList.add("active");
+    elements.drivesView.style.display = "flex";
     elements.btnRescan.style.display = "none";
     elements.btnChangeSource.style.display = "none";
     elements.breadcrumbContainer.style.display = "none";
     fetchDrives();
   }
 
-  // Interactive Sunburst Layout (D3.js v7)
+  // Interactive DaisyDisk Sunburst Layout (D3.js v7)
   function initSunburst(rootData) {
     elements.sunburstSvg.innerHTML = "";
 
-    const containerRect = elements.sunburstContainer.getBoundingClientRect();
-    const size = Math.min(containerRect.width, containerRect.height, 750) || 600;
+    const containerWidth = elements.sunburstContainer.clientWidth || elements.sunburstContainer.offsetWidth || 650;
+    const containerHeight = elements.sunburstContainer.clientHeight || elements.sunburstContainer.offsetHeight || 650;
+    const size = Math.max(480, Math.min(containerWidth, containerHeight, 720));
     const radius = size / 2;
+    const centerRadius = 88; // Center badge circle radius (170px width / 2 = 85px)
+    const maxVisibleLevels = 4;
+    const ringWidth = (radius - centerRadius - 4) / maxVisibleLevels;
 
     const svg = d3
       .select("#sunburst-svg")
       .attr("viewBox", `-${radius} -${radius} ${size} ${size}`)
-      .attr("width", size)
-      .attr("height", size);
+      .attr("width", "100%")
+      .attr("height", "100%")
+      .style("max-width", `${size}px`)
+      .style("max-height", `${size}px`);
 
     // Group for all radial arcs
     const g = svg.append("g");
 
     // Partition hierarchy
-    const partition = (data) => {
-      const root = d3
-        .hierarchy(data)
-        .sum((d) => (d.children && d.children.length > 0 ? 0 : d.size_bytes || 0))
-        .sort((a, b) => (b.value || 0) - (a.value || 0));
+    const hierarchyRoot = d3
+      .hierarchy(rootData)
+      .sum((d) => (d.children && d.children.length > 0 ? 0 : d.size_bytes || 0))
+      .sort((a, b) => (b.value || 0) - (a.value || 0));
 
-      return d3.partition().size([2 * Math.PI, root.height + 1])(root);
-    };
-
-    const root = partition(rootData);
-    root.each((d) => (d.current = d));
+    const partition = d3.partition().size([2 * Math.PI, 1]);
+    const root = partition(hierarchyRoot);
 
     state.rootNode = root;
     state.focusedNode = root;
@@ -344,30 +366,93 @@
       }
       const baseColor = d3.hsl(colorScale(ancestor.data.name || ancestor.data.path));
       // Modulate lightness slightly with depth
-      baseColor.l = Math.max(0.3, Math.min(0.75, baseColor.l + (d.depth - 1) * 0.07));
+      baseColor.l = Math.max(0.32, Math.min(0.72, baseColor.l + (d.depth - 1) * 0.06));
       return baseColor.toString();
     };
+
+    // Calculate node arc geometry relative to any focused node
+    function computeGeometry(d, targetNode) {
+      if (d === targetNode) {
+        return {
+          x0: 0,
+          x1: 2 * Math.PI,
+          r0: 0,
+          r1: centerRadius,
+          relDepth: 0,
+          visible: false, // Center badge HTML renders the center
+        };
+      }
+
+      const angleSpan = Math.max(1e-9, targetNode.x1 - targetNode.x0);
+      const isDescendant =
+        d.x0 >= targetNode.x0 - 1e-9 &&
+        d.x1 <= targetNode.x1 + 1e-9 &&
+        d.depth > targetNode.depth;
+
+      if (!isDescendant) {
+        return {
+          x0: 0,
+          x1: 0,
+          r0: 0,
+          r1: 0,
+          relDepth: -1,
+          visible: false,
+        };
+      }
+
+      const relDepth = d.depth - targetNode.depth;
+      const x0 = Math.max(0, Math.min(2 * Math.PI, ((d.x0 - targetNode.x0) / angleSpan) * 2 * Math.PI));
+      const x1 = Math.max(0, Math.min(2 * Math.PI, ((d.x1 - targetNode.x0) / angleSpan) * 2 * Math.PI));
+
+      if (relDepth < 1 || relDepth > maxVisibleLevels || x1 <= x0) {
+        return {
+          x0,
+          x1,
+          r0: centerRadius + Math.min(relDepth, maxVisibleLevels + 1) * ringWidth,
+          r1: centerRadius + Math.min(relDepth, maxVisibleLevels + 1) * ringWidth,
+          relDepth,
+          visible: false,
+        };
+      }
+
+      const r0 = centerRadius + (relDepth - 1) * ringWidth + 1.5;
+      const r1 = centerRadius + relDepth * ringWidth - 1.5;
+
+      return {
+        x0,
+        x1,
+        r0,
+        r1,
+        relDepth,
+        visible: (x1 - x0) >= 0.003,
+      };
+    }
 
     // Arc Generator
     const arc = d3
       .arc()
       .startAngle((d) => d.x0)
       .endAngle((d) => d.x1)
-      .padAngle((d) => Math.min((d.x1 - d.x0) / 2, 0.005))
+      .padAngle((d) => Math.min((d.x1 - d.x0) / 2, 0.006))
       .padRadius(radius / 2)
-      .innerRadius((d) => (d.y0 * radius) / (root.height + 1))
-      .outerRadius((d) => Math.max((d.y0 * radius) / (root.height + 1), (d.y1 * radius) / (root.height + 1) - 1));
+      .innerRadius((d) => d.r0)
+      .outerRadius((d) => d.r1);
+
+    // Initial geometry for all descendants (slice(1) omits the root)
+    root.each((d) => {
+      d.current = computeGeometry(d, root);
+    });
 
     // Render Arcs
     const path = g
       .append("g")
       .selectAll("path")
-      .data(root.descendants().slice(1)) // omit center root circle (rendered via HTML badge)
+      .data(root.descendants().slice(1))
       .join("path")
       .attr("class", "sunburst-arc")
       .attr("fill", (d) => state.colorScale(d))
-      .attr("fill-opacity", (d) => (isArcVisible(d.current) ? 1 : 0))
-      .attr("pointer-events", (d) => (isArcVisible(d.current) ? "auto" : "none"))
+      .attr("fill-opacity", (d) => (d.current.visible ? 1 : 0))
+      .attr("pointer-events", (d) => (d.current.visible ? "auto" : "none"))
       .attr("d", (d) => arc(d.current));
 
     // Arc Hover & Tooltip Events
@@ -398,12 +483,7 @@
       state.focusedNode = targetNode;
 
       root.each((d) => {
-        d.target = {
-          x0: Math.max(0, Math.min(1, (d.x0 - targetNode.x0) / (targetNode.x1 - targetNode.x0))) * 2 * Math.PI,
-          x1: Math.max(0, Math.min(1, (d.x1 - targetNode.x0) / (targetNode.x1 - targetNode.x0))) * 2 * Math.PI,
-          y0: Math.max(0, d.y0 - targetNode.y0),
-          y1: Math.max(0, d.y1 - targetNode.y0),
-        };
+        d.target = computeGeometry(d, targetNode);
       });
 
       const t = g.transition().duration(750);
@@ -411,23 +491,21 @@
       path
         .transition(t)
         .tween("data", (d) => {
-          const i = d3.interpolate(d.current || d, d.target);
-          return (t) => (d.current = i(t));
+          const i = d3.interpolate(d.current || d.target, d.target);
+          return (step) => {
+            d.current = i(step);
+          };
         })
         .filter(function (d) {
-          return +this.getAttribute("fill-opacity") || isArcVisible(d.target);
+          return +this.getAttribute("fill-opacity") > 0 || d.target.visible;
         })
-        .attr("fill-opacity", (d) => (isArcVisible(d.target) ? 1 : 0))
-        .attr("pointer-events", (d) => (isArcVisible(d.target) ? "auto" : "none"))
+        .attr("fill-opacity", (d) => (d.target.visible ? 1 : 0))
+        .attr("pointer-events", (d) => (d.target.visible ? "auto" : "none"))
         .attrTween("d", (d) => () => arc(d.current));
 
       renderBreadcrumb();
       renderTopList();
       resetCenterBadge();
-    }
-
-    function isArcVisible(d) {
-      return d.y1 <= radius && d.y0 >= 0 && d.x1 > d.x0;
     }
 
     // Attach zoom to state for external caller
@@ -751,6 +829,17 @@
     if (state.currentTree && elements.visualizerView.classList.contains("active")) {
       initSunburst(state.currentTree);
     }
+  });
+
+  // Quick-path selector buttons
+  document.querySelectorAll(".btn-quick-path").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const p = btn.getAttribute("data-path");
+      if (p) {
+        elements.customPathInput.value = p;
+        startScan(p);
+      }
+    });
   });
 
   // Initialization

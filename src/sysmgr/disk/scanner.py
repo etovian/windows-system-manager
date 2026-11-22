@@ -73,6 +73,8 @@ class DiskScanner:
                     size_bytes=0,
                 )
 
+            emit_progress(dir_path)
+
             children: List[FileNode] = []
             dir_total = 0
 
@@ -115,7 +117,8 @@ class DiskScanner:
                                 is_dir=False,
                             )
                         )
-                    emit_progress(entry.path)
+                    if files_scanned % 50 == 0:
+                        emit_progress(entry.path)
                 except (PermissionError, OSError):
                     continue
 

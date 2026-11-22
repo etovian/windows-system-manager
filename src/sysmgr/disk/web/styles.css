@@ -221,7 +221,7 @@ body.daisydisk-theme {
 }
 
 .view-panel.active {
-  display: flex;
+  display: flex !important;
   flex-direction: column;
 }
 
@@ -589,14 +589,74 @@ body.daisydisk-theme {
 
 /* View 3: Scanning Progress Overlay */
 .scan-overlay {
+  display: none;
   position: fixed;
   inset: 0;
   background: rgba(18, 19, 22, 0.85);
   backdrop-filter: blur(8px);
-  display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
+}
+
+.scan-overlay.active {
+  display: flex !important;
+}
+
+.scan-log-box {
+  width: 100%;
+  max-height: 80px;
+  overflow-y: hidden;
+  background: #111215;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.scan-log-entry {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+
+.scan-log-entry.active-path {
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.quick-paths {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.quick-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.btn-quick-path {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.btn-quick-path:hover {
+  border-color: var(--accent-blue);
+  color: var(--text-main);
+  background: var(--bg-card-hover);
 }
 
 .scan-modal {
