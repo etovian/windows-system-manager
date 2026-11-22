@@ -8,10 +8,12 @@ from sysmgr.disk.models import (
     FileNode,
     ScanProgress,
 )
+from sysmgr.disk.scanner import DiskScanner
 
 __all__ = [
     "ActionRequest",
     "ActionResult",
+    "DiskScanner",
     "DriveInfo",
     "FileNode",
     "ScanProgress",
