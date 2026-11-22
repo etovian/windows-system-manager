@@ -14,6 +14,7 @@ from sysmgr.remediations.registry import (
 )
 from sysmgr.remediations.rollback import RollbackManager
 from sysmgr.remediations.runner import RemediationRunner
+from sysmgr.remediations import handlers
 
 __all__ = [
     "RemediationContext",
@@ -26,4 +27,5 @@ __all__ = [
     "remediation_rollback",
     "RollbackManager",
     "RemediationRunner",
+    "handlers",
 ]

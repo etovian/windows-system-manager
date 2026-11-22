@@ -20,7 +20,13 @@ async def test_flush_dns_cache_handler(monkeypatch):
     ctx = RemediationContext()
     changes = await handler_entry.handler(ctx)
     assert any("Flushed DNS" in c for c in changes)
-    assert mock_run.called
+    mock_run.assert_called_once_with(
+        ["ipconfig", "/flushdns"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
 
     # Dry run
     mock_run.reset_mock()
@@ -42,7 +48,13 @@ async def test_renew_dhcp_lease_handler(monkeypatch):
     ctx = RemediationContext()
     changes = await handler_entry.handler(ctx)
     assert any("DHCP" in c for c in changes)
-    assert mock_run.called
+    mock_run.assert_called_once_with(
+        ["ipconfig", "/renew"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
 
     # Dry run
     mock_run.reset_mock()
@@ -65,6 +77,13 @@ async def test_bluetooth_service_handler_and_rollback(monkeypatch):
     ctx = RemediationContext()
     changes = await handler_entry.handler(ctx)
     assert any("Started Windows Bluetooth" in c for c in changes)
+    mock_run.assert_called_once_with(
+        ["powershell", "-NoProfile", "-Command", "Start-Service -Name bthserv -ErrorAction Stop"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
 
     # Dry run
     ctx_dry = RemediationContext(dry_run=True)
@@ -151,6 +170,36 @@ async def test_clean_temp_files_missing_or_empty_temp(monkeypatch):
     monkeypatch.setenv("TEMP", "C:\\nonexistent_temp_directory_xyz")
     changes_missing = await handler_entry.handler(ctx)
     assert any("does not exist" in c for c in changes_missing)
+
+
+@pytest.mark.asyncio
+async def test_clean_temp_files_skips_locked_files(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "temp"
+    temp_dir.mkdir()
+    locked_file = temp_dir / "locked.tmp"
+    locked_file.write_text("locked")
+    two_days_ago = time.time() - (48 * 3600)
+    os.utime(locked_file, (two_days_ago, two_days_ago))
+
+    monkeypatch.setenv("TEMP", str(temp_dir))
+
+    # Mock unlink to simulate a locked file raising PermissionError
+    orig_unlink = os.unlink
+
+    def mock_unlink(path):
+        if "locked.tmp" in str(path):
+            raise PermissionError("Access denied / file locked")
+        return orig_unlink(path)
+
+    monkeypatch.setattr(os, "unlink", mock_unlink)
+
+    handler_entry = default_remediation_registry.get("clean-temp-files")
+    ctx = RemediationContext()
+    changes = await handler_entry.handler(ctx)
+
+    # Remediation should gracefully skip the locked file without crashing
+    assert any("Cleaned 0 temporary files" in c for c in changes)
+    assert locked_file.exists()
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,7 @@ async def flush_dns_cache(ctx: RemediationContext) -> List[str]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=10,
     )
     return ["Flushed DNS resolver cache using 'ipconfig /flushdns'."]
 
@@ -32,8 +33,8 @@ async def flush_dns_cache(ctx: RemediationContext) -> List[str]:
     action_id="renew-dhcp-lease",
     description="Renew DHCP lease for network adapters",
     scope=RemediationScope.TRANSIENT,
-    risk_level=RiskLevel.SAFE,
-    requires_admin=False,
+    risk_level=RiskLevel.CONFIRMATION_REQUIRED,
+    requires_admin=True,
     parent_probe_id="hardware.network",
 )
 async def renew_dhcp_lease(ctx: RemediationContext) -> List[str]:
@@ -46,5 +47,6 @@ async def renew_dhcp_lease(ctx: RemediationContext) -> List[str]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=30,
     )
     return ["Renewed DHCP lease for network adapters using 'ipconfig /renew'."]

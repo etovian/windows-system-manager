@@ -63,7 +63,7 @@ async def clean_temp_files(ctx: RemediationContext) -> List[str]:
 @remediation_rollback("clean-temp-files")
 async def clean_temp_files_rollback() -> RollbackPlan:
     """Generate rollback plan documenting purged transient files."""
-    temp_dir = os.environ.get("TEMP", "C:\\Windows\\Temp")
+    temp_dir = os.environ.get("TEMP") or os.environ.get("TMP") or r"C:\Windows\Temp"
     return RollbackPlan(
         action_id="clean-temp-files",
         title="Rollback Clean Temporary Files",

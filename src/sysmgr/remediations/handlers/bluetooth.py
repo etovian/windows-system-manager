@@ -21,10 +21,11 @@ async def start_bluetooth_service(ctx: RemediationContext) -> List[str]:
         return ["[Dry Run] Would start Windows Bluetooth service (bthserv)"]
 
     subprocess.run(
-        ["powershell", "-NoProfile", "-Command", "Start-Service -Name bthserv"],
+        ["powershell", "-NoProfile", "-Command", "Start-Service -Name bthserv -ErrorAction Stop"],
         check=True,
         capture_output=True,
         text=True,
+        timeout=15,
     )
     return ["Started Windows Bluetooth support service (bthserv)."]
 
