@@ -85,6 +85,7 @@ async def test_remediation_clean_temp_files_dry_run_isolated(tmp_path, monkeypat
     recent_file.write_text("sample active content")
 
     monkeypatch.setenv("TEMP", str(isolated_temp))
+    monkeypatch.setenv("TMP", str(isolated_temp))
 
     entry = default_remediation_registry.get("clean-temp-files")
     assert entry is not None
@@ -125,7 +126,7 @@ async def test_remediation_clean_temp_files_dry_run_system_temp():
     changes = await entry.handler(ctx)
     assert len(changes) == 1
     assert "[Dry Run] Would clean" in changes[0]
-    assert temp_dir in changes[0]
+    assert str(Path(temp_dir)) in changes[0]
 
 
 def test_rollback_manager_markdown_schema_generation(tmp_path):
