@@ -1,6 +1,7 @@
 import pytest
-from unittest.mock import patch, MagicMock
-from sysmgr.disk.drives import get_system_drives
+from unittest.mock import MagicMock, patch
+import psutil
+from sysmgr.disk.drives import _get_volume_label, get_system_drives
 
 
 def test_get_system_drives_success():
@@ -16,12 +17,14 @@ def test_get_system_drives_success():
     mock_usage.percent = 60.0
 
     with patch("psutil.disk_partitions", return_value=[mock_partition]), \
-         patch("psutil.disk_usage", return_value=mock_usage):
+         patch("psutil.disk_usage", return_value=mock_usage), \
+         patch("sysmgr.disk.drives._get_volume_label", return_value="System SSD"):
         drives = get_system_drives()
         assert len(drives) == 1
         assert drives[0].mountpoint == "C:\\"
         assert drives[0].percent_used == 60.0
         assert drives[0].total_bytes == mock_usage.total
+        assert drives[0].label == "System SSD"
 
 
 def test_get_system_drives_handles_unready_drive():
@@ -40,7 +43,21 @@ def test_get_system_drives_handles_unready_drive():
         assert drives[0].mountpoint == "C:\\"
 
 
-def test_get_system_drives_handles_partition_enumeration_error():
-    with patch("psutil.disk_partitions", side_effect=RuntimeError("WMI error")):
+def test_get_system_drives_handles_psutil_access_denied():
+    mock_part1 = MagicMock(mountpoint="E:\\", device="E:", fstype="BitLocker")
+
+    with patch("psutil.disk_partitions", return_value=[mock_part1]), \
+         patch("psutil.disk_usage", side_effect=psutil.AccessDenied()):
+        drives = get_system_drives()
+        assert len(drives) == 0
+
+
+def test_get_system_drives_enumeration_failure():
+    with patch("psutil.disk_partitions", side_effect=Exception("WMI failure")):
         drives = get_system_drives()
         assert drives == []
+
+
+def test_get_volume_label_fallback():
+    label = _get_volume_label("Z:\\", "FallbackDev")
+    assert label == "FallbackDev"
