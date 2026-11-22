@@ -32,12 +32,14 @@ class RollbackManager:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
             subprocess.run(
                 ["git", "commit", "-m", f"chore(rollback): record plan for {plan.action_id}", "--", str(file_path)],
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=10,
             )
         except (subprocess.SubprocessError, OSError) as e:
             # If git commit fails (e.g. running in testing sandbox without git identity,
