@@ -20,6 +20,10 @@ class DiskScanner:
         """Signal the scanner to abort any in-progress directory traversal."""
         self.is_cancelled = True
 
+    def reset(self) -> None:
+        """Reset scanner cancellation state for reuse."""
+        self.is_cancelled = False
+
     async def scan(
         self,
         target_path: str,
@@ -28,7 +32,8 @@ class DiskScanner:
         """Traverse target_path, aggregate disk usage bottom-up, and emit progress events.
 
         Runs synchronous filesystem traversal in the default loop executor to keep the
-        asyncio event loop responsive.
+        asyncio event loop responsive. Note: progress_callback is invoked synchronously
+        from worker threads in the executor pool.
         """
         target_path = os.path.abspath(target_path)
         progress_history: List[ScanProgress] = []
@@ -37,17 +42,22 @@ class DiskScanner:
         start_time = time.time()
         last_progress_time = 0.0
 
-        def emit_progress(curr_path: str, status: str = "scanning") -> None:
+        def emit_progress(
+            curr_path: str,
+            status: str = "scanning",
+            error_message: Optional[str] = None,
+        ) -> None:
             nonlocal last_progress_time
             now = time.time()
             if now - last_progress_time >= 0.1 or status != "scanning":
                 last_progress_time = now
                 p = ScanProgress(
-                    status=status,
+                    status=status,  # type: ignore[arg-type]
                     current_path=curr_path,
                     files_scanned=files_scanned,
                     total_bytes=total_bytes,
                     elapsed_seconds=round(now - start_time, 2),
+                    error_message=error_message,
                 )
                 progress_history.append(p)
                 if progress_callback:
@@ -123,6 +133,11 @@ class DiskScanner:
                     else:
                         primary_children.append(c)
 
+                # Ensure at least the top 3 items remain unrolled so directory isn't completely opaque
+                if not primary_children and len(children) > 3:
+                    primary_children = children[:3]
+                    other_size = sum(c.size_bytes for c in children[3:])
+
                 if other_size > 0:
                     primary_children.append(
                         FileNode(
@@ -164,6 +179,10 @@ class DiskScanner:
             )
 
         loop = asyncio.get_running_loop()
-        root_node = await loop.run_in_executor(None, scan_dir, target_path, 0)
-        emit_progress(target_path, "completed")
-        return root_node, progress_history
+        try:
+            root_node = await loop.run_in_executor(None, scan_dir, target_path, 0)
+            emit_progress(target_path, "completed")
+            return root_node, progress_history
+        except Exception as exc:
+            emit_progress(target_path, "failed", error_message=str(exc))
+            raise
