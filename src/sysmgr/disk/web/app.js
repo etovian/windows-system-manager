@@ -69,6 +69,17 @@
     toastContainer: document.getElementById("toast-container"),
   };
 
+  // HTML Sanitization Utility for XSS Prevention
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
   // Human-Readable Byte Formatter
   function formatBytes(bytes, decimals = 1) {
     if (!bytes || bytes <= 0) return "0 B";
@@ -105,7 +116,7 @@
       const drives = await res.json();
       renderDrives(drives);
     } catch (err) {
-      elements.drivesList.innerHTML = `<div class="loading-spinner">Failed to load drives: ${err.message}</div>`;
+      elements.drivesList.innerHTML = `<div class="loading-spinner">Failed to load drives: ${escapeHtml(err.message)}</div>`;
     }
   }
 
@@ -126,10 +137,13 @@
       if (pct > 90) barColor = "var(--accent-red)";
       else if (pct > 75) barColor = "var(--accent-amber)";
 
+      const safeMount = escapeHtml(drive.mountpoint);
+      const safeLabel = escapeHtml(drive.label || drive.fstype);
+
       card.innerHTML = `
         <div class="drive-header">
-          <span class="drive-mount">${drive.mountpoint}</span>
-          <span class="drive-label" title="${drive.label || drive.fstype}">${drive.label || drive.fstype}</span>
+          <span class="drive-mount">${safeMount}</span>
+          <span class="drive-label" title="${safeLabel}">${safeLabel}</span>
         </div>
         <div class="drive-capacity-track">
           <div class="drive-capacity-fill" style="width: ${pct}%; background: ${barColor};"></div>
@@ -209,6 +223,8 @@
       if (state.eventSource) {
         state.eventSource.close();
         state.eventSource = null;
+        hideScanOverlay();
+        showToast("Connection to scan progress stream lost", "error");
       }
     };
   }
@@ -249,7 +265,7 @@
       initSunburst(tree);
       showToast("Scan completed successfully", "success");
     } catch (err) {
-      showToast(err.message, "error");
+      showToast(`Failed to render visualizer: ${err.message}`, "error");
     }
   }
 
@@ -259,94 +275,78 @@
     elements.scanFilesScanned.textContent = "0 files";
     elements.scanBytesScanned.textContent = "0 B";
     elements.scanElapsed.textContent = "0.0s";
-    elements.scanOverlay.style.display = "flex";
+    elements.scanOverlay.classList.add("active");
   }
 
   function hideScanOverlay() {
-    elements.scanOverlay.style.display = "none";
+    elements.scanOverlay.classList.remove("active");
   }
 
   function switchToVisualizer() {
     elements.drivesView.classList.remove("active");
-    elements.drivesView.style.display = "none";
     elements.visualizerView.classList.add("active");
-    elements.visualizerView.style.display = "flex";
-
-    elements.breadcrumbContainer.style.display = "block";
     elements.btnRescan.style.display = "inline-flex";
     elements.btnChangeSource.style.display = "inline-flex";
+    elements.breadcrumbContainer.style.display = "flex";
   }
 
   function switchToDrives() {
     elements.visualizerView.classList.remove("active");
-    elements.visualizerView.style.display = "none";
     elements.drivesView.classList.add("active");
-    elements.drivesView.style.display = "flex";
-
-    elements.breadcrumbContainer.style.display = "none";
     elements.btnRescan.style.display = "none";
     elements.btnChangeSource.style.display = "none";
+    elements.breadcrumbContainer.style.display = "none";
     fetchDrives();
   }
 
-  // D3 Sunburst Visualizer Engine
-  function initSunburst(data) {
-    // Clear previous SVG
-    d3.select("#sunburst-svg").selectAll("*").remove();
+  // Interactive Sunburst Layout (D3.js v7)
+  function initSunburst(rootData) {
+    elements.sunburstSvg.innerHTML = "";
 
-    const containerBox = elements.sunburstContainer.getBoundingClientRect();
-    const size = Math.min(containerBox.width || 600, containerBox.height || 600, 720);
+    const containerRect = elements.sunburstContainer.getBoundingClientRect();
+    const size = Math.min(containerRect.width, containerRect.height, 750) || 600;
     const radius = size / 2;
-    const centerRadius = Math.max(radius * 0.28, 65);
 
-    // D3 Hierarchy & Partition Layout
-    const root = d3
-      .hierarchy(data)
-      .sum((d) => (!d.children || d.children.length === 0 ? d.size_bytes || 1 : 0))
-      .sort((a, b) => (b.value || 0) - (a.value || 0));
-
-    state.rootNode = root;
-    state.focusedNode = root;
-
-    // Color Assignation: Base hues for depth-1 children, tinted for subtrees
-    const topChildren = root.children || [];
-    const colorMap = new Map();
-    topChildren.forEach((child, idx) => {
-      colorMap.set(child.data.path, DAISY_PALETTE[idx % DAISY_PALETTE.length]);
-    });
-
-    function getNodeColor(d) {
-      if (d.depth === 0) return "#22252d";
-      // Find depth-1 ancestor
-      let curr = d;
-      while (curr.depth > 1 && curr.parent) {
-        curr = curr.parent;
-      }
-      const baseColor = colorMap.get(curr.data.path) || DAISY_PALETTE[0];
-      if (d.depth === 1) return baseColor;
-
-      // Brighten or modulate hue based on depth
-      const depthOffset = (d.depth - 1) * 0.12;
-      return d3.interpolateLab(baseColor, "#ffffff")(Math.min(depthOffset, 0.45));
-    }
-
-    state.colorScale = getNodeColor;
-
-    // SVG & G Setup
     const svg = d3
       .select("#sunburst-svg")
       .attr("viewBox", `-${radius} -${radius} ${size} ${size}`)
       .attr("width", size)
       .attr("height", size);
 
+    // Group for all radial arcs
     const g = svg.append("g");
 
-    // Partition Layout
-    const partition = d3
-      .partition()
-      .size([2 * Math.PI, radius]);
+    // Partition hierarchy
+    const partition = (data) => {
+      const root = d3
+        .hierarchy(data)
+        .sum((d) => (d.children && d.children.length > 0 ? 0 : d.size_bytes || 0))
+        .sort((a, b) => (b.value || 0) - (a.value || 0));
 
-    partition(root);
+      return d3.partition().size([2 * Math.PI, root.height + 1])(root);
+    };
+
+    const root = partition(rootData);
+    root.each((d) => (d.current = d));
+
+    state.rootNode = root;
+    state.focusedNode = root;
+
+    // Vibrant DaisyDisk Palette assignment
+    const colorScale = d3.scaleOrdinal(DAISY_PALETTE);
+    state.colorScale = (d) => {
+      if (d.depth === 0) return "rgba(255, 255, 255, 0.08)";
+      if (d.data.name === "Other files") return "#546e7a";
+      // Derive color from root branch ancestor
+      let ancestor = d;
+      while (ancestor.depth > 1) {
+        ancestor = ancestor.parent;
+      }
+      const baseColor = d3.hsl(colorScale(ancestor.data.name || ancestor.data.path));
+      // Modulate lightness slightly with depth
+      baseColor.l = Math.max(0.3, Math.min(0.75, baseColor.l + (d.depth - 1) * 0.07));
+      return baseColor.toString();
+    };
 
     // Arc Generator
     const arc = d3
@@ -355,46 +355,45 @@
       .endAngle((d) => d.x1)
       .padAngle((d) => Math.min((d.x1 - d.x0) / 2, 0.005))
       .padRadius(radius / 2)
-      .innerRadius((d) => Math.max(centerRadius, d.y0))
-      .outerRadius((d) => Math.max(centerRadius, d.y1 - 1));
+      .innerRadius((d) => (d.y0 * radius) / (root.height + 1))
+      .outerRadius((d) => Math.max((d.y0 * radius) / (root.height + 1), (d.y1 * radius) / (root.height + 1) - 1));
 
     // Render Arcs
     const path = g
       .append("g")
       .selectAll("path")
-      .data(root.descendants().filter((d) => d.depth > 0))
+      .data(root.descendants().slice(1)) // omit center root circle (rendered via HTML badge)
       .join("path")
       .attr("class", "sunburst-arc")
-      .attr("id", (d, i) => `arc-${i}`)
-      .attr("fill", (d) => getNodeColor(d))
-      .attr("d", arc)
-      .attr("data-path", (d) => d.data.path);
+      .attr("fill", (d) => state.colorScale(d))
+      .attr("fill-opacity", (d) => (isArcVisible(d.current) ? 1 : 0))
+      .attr("pointer-events", (d) => (isArcVisible(d.current) ? "auto" : "none"))
+      .attr("d", (d) => arc(d.current));
 
-    // Slice Event Listeners
+    // Arc Hover & Tooltip Events
     path
-      .on("mouseover", (event, d) => {
+      .on("mouseenter", function (event, d) {
         highlightItem(d);
-        updateCenterBadge(d.data.name, d.data.size_bytes || d.value, d.data.path);
+        updateCenterBadge(d.data.name, d.value, d.data.path);
       })
-      .on("mouseout", () => {
+      .on("mouseleave", function () {
         resetHighlight();
         resetCenterBadge();
       })
-      .on("click", (event, d) => {
+      .on("click", function (event, p) {
         event.stopPropagation();
-        if (d.children && d.children.length > 0) {
-          zoomToNode(d);
+        if (p.children && p.children.length > 0) {
+          zoomToNode(p);
         } else {
-          showItemContextMenu(event, d.data);
+          showItemContextMenu(event, p.data);
         }
       })
-      .on("contextmenu", (event, d) => {
+      .on("contextmenu", function (event, d) {
         event.preventDefault();
-        event.stopPropagation();
         showItemContextMenu(event, d.data);
       });
 
-    // Zooming Mechanism
+    // Zoom & Drilldown Handler
     function zoomToNode(targetNode) {
       state.focusedNode = targetNode;
 
@@ -524,11 +523,14 @@
       const pct = Math.round((itemBytes / totalCurrentSize) * 100);
       const isDir = child.data.is_dir || (child.children && child.children.length > 0);
 
+      const safeName = escapeHtml(child.data.name);
+      const safePath = escapeHtml(child.data.path);
+
       row.innerHTML = `
         <span class="item-bullet" style="background: ${bulletColor};"></span>
         <span class="item-icon">${isDir ? "📁" : "📄"}</span>
         <div class="item-info">
-          <div class="item-name" title="${child.data.path}">${child.data.name}</div>
+          <div class="item-name" title="${safePath}">${safeName}</div>
           <div class="item-subtext">${pct}% of current</div>
         </div>
         <span class="item-size">${formatBytes(itemBytes)}</span>
@@ -622,6 +624,13 @@
     }
   });
 
+  // Keyboard accessibility: dismiss context menu on Escape key
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      hideContextMenu();
+    }
+  });
+
   // Action Menu Handler
   elements.contextMenu.addEventListener("click", async (e) => {
     const li = e.target.closest("li[data-action]");
@@ -680,11 +689,14 @@
 
   // Properties Modal
   function showPropertiesModal(details) {
-    elements.propTitle.textContent = `Properties: ${details.name || "File Details"}`;
+    const safeTitle = escapeHtml(details.name || "File Details");
+    const safePath = escapeHtml(details.path || "");
+
+    elements.propTitle.textContent = `Properties: ${safeTitle}`;
     elements.propBody.innerHTML = `
       <div class="prop-row">
         <span class="prop-label">Path:</span>
-        <span class="prop-value" title="${details.path || ''}">${details.path || ''}</span>
+        <span class="prop-value" title="${safePath}">${safePath}</span>
       </div>
       <div class="prop-row">
         <span class="prop-label">Type:</span>
@@ -694,15 +706,15 @@
         <span class="prop-label">Size:</span>
         <span class="prop-value">${formatBytes(details.size_bytes)} (${formatNumber(details.size_bytes)} bytes)</span>
       </div>
-      ${details.created ? `
+      ${details.created_time ? `
       <div class="prop-row">
         <span class="prop-label">Created:</span>
-        <span class="prop-value">${details.created}</span>
+        <span class="prop-value">${escapeHtml(new Date(details.created_time * 1000).toLocaleString())}</span>
       </div>` : ""}
-      ${details.modified ? `
+      ${details.modified_time ? `
       <div class="prop-row">
         <span class="prop-label">Modified:</span>
-        <span class="prop-value">${details.modified}</span>
+        <span class="prop-value">${escapeHtml(new Date(details.modified_time * 1000).toLocaleString())}</span>
       </div>` : ""}
     `;
     elements.propertiesModal.showModal();
