@@ -10,6 +10,13 @@ from rich.panel import Panel
 import sysmgr
 from sysmgr.core.models import DiagnosticStatus
 from sysmgr.probes import create_default_engine
+from sysmgr.remediations import (
+    RemediationContext,
+    RemediationResult,
+    RemediationRunner,
+    RemediationScope,
+    default_remediation_registry,
+)
 
 app = typer.Typer(
     name="sysmgr",
@@ -58,6 +65,22 @@ def doctor(
         "--json",
         help="Output raw machine-readable JSON format for agents and scripts.",
     ),
+    fix: bool = typer.Option(
+        False,
+        "--fix",
+        help="Interactively execute available remediations for warnings/failures.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Automatically accept confirmation prompts.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Run remediations in simulation dry-run mode.",
+    ),
 ):
     """Run system diagnostic probes across hardware, storage, and upgrade readiness."""
     engine = create_default_engine(probe_timeout_seconds=timeout)
@@ -104,7 +127,116 @@ def doctor(
     console.print(table)
     console.print()
 
+    if fix:
+        remediations_to_apply = []
+        seen_ids = set()
+        for res in report.results:
+            if res.status in (DiagnosticStatus.WARN, DiagnosticStatus.FAIL) and res.remediations:
+                for rem in res.remediations:
+                    if rem.id not in seen_ids:
+                        seen_ids.add(rem.id)
+                        remediations_to_apply.append(rem)
+
+        if not remediations_to_apply:
+            console.print("[bold green]No remediations required.[/bold green]")
+            if report.fail_count > 0:
+                raise typer.Exit(code=1)
+            return
+
+        console.print(f"[bold yellow]Found {len(remediations_to_apply)} available remediation(s):[/bold yellow]")
+        for rem in remediations_to_apply:
+            admin_tag = " [bold red](Admin)[/bold red]" if rem.requires_admin else ""
+            console.print(f"  • [bold]{rem.id}[/bold]: {rem.description}{admin_tag}")
+        console.print()
+
+        if not yes:
+            if not typer.confirm(f"Apply {len(remediations_to_apply)} remediation(s)?", default=False):
+                console.print("[yellow]Remediation cancelled by user.[/yellow]")
+                if report.fail_count > 0:
+                    raise typer.Exit(code=1)
+                return
+
+        runner = RemediationRunner()
+        all_success = True
+        for rem in remediations_to_apply:
+            console.print(f"\n[bold]Executing remediation '{rem.id}'...[/bold]")
+            ctx = RemediationContext(dry_run=dry_run, auto_confirm=yes)
+            rem_res = asyncio.run(runner.execute(rem.id, ctx=ctx))
+            if rem_res.success:
+                console.print(f"[green]SUCCESS[/green] [bold]{rem.id}[/bold]")
+                for change in rem_res.changes_made:
+                    console.print(f"  • {change}")
+                if rem_res.rollback_file:
+                    console.print(f"  [bold cyan]Rollback Plan:[/bold cyan] {rem_res.rollback_file}")
+            else:
+                all_success = False
+                console.print(f"[red]FAILED[/red] [bold]{rem.id}[/bold]: {rem_res.error}")
+
+        console.print()
+        if not all_success:
+            raise typer.Exit(code=1)
+        return
+
     if report.fail_count > 0:
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def fix(
+    action_id: str = typer.Argument(..., help="Unique ID of remediation action to execute."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate changes without modifying system state."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt for persistent alterations."),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON."),
+):
+    """Execute a remediation action by unique action ID."""
+    runner = RemediationRunner()
+    handler = default_remediation_registry.get(action_id)
+    if not handler:
+        if json_output:
+            failure_result = RemediationResult(
+                action_id=action_id,
+                success=False,
+                error=f"No remediation registered for '{action_id}'.",
+            )
+            print(failure_result.model_dump_json(indent=2))
+        else:
+            console.print(f"[red]Error:[/red] No remediation registered for '{action_id}'.")
+        raise typer.Exit(code=1)
+
+    if handler.scope == RemediationScope.PERSISTENT and not dry_run and not yes:
+        if not typer.confirm(f"Confirm executing persistent remediation '{action_id}'?", default=False):
+            console.print("[yellow]Remediation cancelled by user.[/yellow]")
+            return
+
+    ctx = RemediationContext(dry_run=dry_run, auto_confirm=yes)
+    result = asyncio.run(runner.execute(action_id, ctx=ctx))
+
+    if json_output:
+        print(result.model_dump_json(indent=2))
+        if not result.success:
+            raise typer.Exit(code=1)
+        return
+
+    # Rich presentation
+    status_badge = "[bold green]SUCCESS[/bold green]" if result.success else "[bold red]FAILED[/bold red]"
+    panel_content = f"Status: {status_badge}\nAction ID: [bold]{result.action_id}[/bold]"
+    if result.changes_made:
+        panel_content += "\n\nChanges Made:\n" + "\n".join(f"  • {c}" for c in result.changes_made)
+    if result.error:
+        panel_content += f"\n\n[bold red]Error:[/bold red] {result.error}"
+
+    console.print()
+    console.print(Panel.fit(panel_content, title="Remediation Execution"))
+
+    if result.rollback_file:
+        console.print(f"[bold cyan]Rollback Plan:[/bold cyan] {result.rollback_file}")
+
+    if result.post_check:
+        post_color = "green" if result.post_check.status == DiagnosticStatus.PASS else "yellow" if result.post_check.status == DiagnosticStatus.WARN else "red"
+        console.print(f"Post-Check: [{post_color}][{result.post_check.status.value}][/{post_color}] {result.post_check.summary}")
+
+    console.print()
+    if not result.success:
         raise typer.Exit(code=1)
 
 
