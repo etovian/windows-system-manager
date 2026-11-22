@@ -86,6 +86,10 @@ def doctor(
     engine = create_default_engine(probe_timeout_seconds=timeout)
     report = asyncio.run(engine.run_all(category=category))
 
+    if fix and json_output:
+        console.print("[red]Error:[/red] The '--fix' and '--json' options cannot be combined. Use 'sysmgr fix <action_id> --json' for machine-readable remediation.")
+        raise typer.Exit(code=1)
+
     if json_output:
         print(report.model_dump_json(indent=2))
         return
@@ -145,8 +149,10 @@ def doctor(
 
         console.print(f"[bold yellow]Found {len(remediations_to_apply)} available remediation(s):[/bold yellow]")
         for rem in remediations_to_apply:
+            handler_entry = default_remediation_registry.get(rem.id)
+            scope_badge = f" [cyan][{handler_entry.scope.value}][/cyan]" if handler_entry else ""
             admin_tag = " [bold red](Admin)[/bold red]" if rem.requires_admin else ""
-            console.print(f"  • [bold]{rem.id}[/bold]: {rem.description}{admin_tag}")
+            console.print(f"  • [bold]{rem.id}[/bold]: {rem.description}{scope_badge}{admin_tag}")
         console.print()
 
         if not yes:
@@ -160,7 +166,7 @@ def doctor(
         all_success = True
         for rem in remediations_to_apply:
             console.print(f"\n[bold]Executing remediation '{rem.id}'...[/bold]")
-            ctx = RemediationContext(dry_run=dry_run, auto_confirm=yes)
+            ctx = RemediationContext(dry_run=dry_run, auto_confirm=True)
             rem_res = asyncio.run(runner.execute(rem.id, ctx=ctx))
             if rem_res.success:
                 console.print(f"[green]SUCCESS[/green] [bold]{rem.id}[/bold]")
@@ -168,6 +174,9 @@ def doctor(
                     console.print(f"  • {change}")
                 if rem_res.rollback_file:
                     console.print(f"  [bold cyan]Rollback Plan:[/bold cyan] {rem_res.rollback_file}")
+                if rem_res.post_check:
+                    post_color = "green" if rem_res.post_check.status == DiagnosticStatus.PASS else "yellow" if rem_res.post_check.status == DiagnosticStatus.WARN else "red"
+                    console.print(f"  Post-Check: [{post_color}][{rem_res.post_check.status.value}][/{post_color}] {rem_res.post_check.summary}")
             else:
                 all_success = False
                 console.print(f"[red]FAILED[/red] [bold]{rem.id}[/bold]: {rem_res.error}")
@@ -204,6 +213,15 @@ def fix(
         raise typer.Exit(code=1)
 
     if handler.scope == RemediationScope.PERSISTENT and not dry_run and not yes:
+        if json_output:
+            unconfirmed_result = RemediationResult(
+                action_id=action_id,
+                success=False,
+                error="Persistent remediation requires explicit confirmation. Pass '--yes' or use '--dry-run'.",
+            )
+            print(unconfirmed_result.model_dump_json(indent=2))
+            raise typer.Exit(code=1)
+
         if not typer.confirm(f"Confirm executing persistent remediation '{action_id}'?", default=False):
             console.print("[yellow]Remediation cancelled by user.[/yellow]")
             return

@@ -340,3 +340,19 @@ def test_cli_doctor_fix_prompt_declined():
         assert "cancelled" in result.stdout.lower() or "aborted" in result.stdout.lower()
 
 
+def test_cli_fix_persistent_json_requires_yes():
+    # Attempting to run persistent fix with --json but without --yes should return structured failure JSON
+    result = runner.invoke(app, ["fix", "start-bluetooth-service", "--json"])
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert data["success"] is False
+    assert "Pass '--yes'" in data["error"]
+
+
+def test_cli_doctor_fix_json_mutually_exclusive():
+    result = runner.invoke(app, ["doctor", "--fix", "--json"])
+    assert result.exit_code == 1
+    assert "cannot be combined" in result.stdout
+
+
+
