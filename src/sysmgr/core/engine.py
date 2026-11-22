@@ -23,7 +23,7 @@ class BaseProbe:
 class ProbeEngine:
     """Coordinates probe registration, concurrent execution, and result aggregation."""
 
-    def __init__(self, probe_timeout_seconds: float = 5.0):
+    def __init__(self, probe_timeout_seconds: float = 15.0):
         self.probes: Dict[str, BaseProbe] = {}
         self.timeout = probe_timeout_seconds
 

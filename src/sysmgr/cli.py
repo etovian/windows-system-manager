@@ -47,6 +47,12 @@ def doctor(
         "-c",
         help="Filter diagnostics by category (hardware, storage, readiness).",
     ),
+    timeout: float = typer.Option(
+        15.0,
+        "--timeout",
+        "-t",
+        help="Maximum timeout in seconds per probe (default: 15.0s).",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -54,7 +60,7 @@ def doctor(
     ),
 ):
     """Run system diagnostic probes across hardware, storage, and upgrade readiness."""
-    engine = create_default_engine()
+    engine = create_default_engine(probe_timeout_seconds=timeout)
     report = asyncio.run(engine.run_all(category=category))
 
     if json_output:

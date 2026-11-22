@@ -9,8 +9,8 @@ from sysmgr.probes.storage.disk_performance import DiskPerformanceProbe
 from sysmgr.probes.storage.disk_space import DiskSpaceProbe
 
 
-def create_default_engine() -> ProbeEngine:
-    engine = ProbeEngine()
+def create_default_engine(probe_timeout_seconds: float = 15.0) -> ProbeEngine:
+    engine = ProbeEngine(probe_timeout_seconds=probe_timeout_seconds)
     engine.register(BluetoothProbe())
     engine.register(DeviceManagerProbe())
     engine.register(NetworkAdapterProbe())
