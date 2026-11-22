@@ -58,6 +58,20 @@ def test_api_scan_endpoint_success(client, tmp_path):
     assert resp.json()["status"] == "scan_started"
 
 
+def test_api_scan_consecutive_restarts(client, tmp_path):
+    dir1 = tmp_path / "dir1"
+    dir1.mkdir()
+    dir2 = tmp_path / "dir2"
+    dir2.mkdir()
+
+    resp1 = client.post("/api/scan", json={"path": str(dir1)})
+    assert resp1.status_code == 200
+
+    resp2 = client.post("/api/scan", json={"path": str(dir2)})
+    assert resp2.status_code == 200
+    assert resp2.json()["status"] == "scan_started"
+
+
 def test_api_scan_cancel_endpoint(client):
     resp = client.post("/api/scan/cancel")
     assert resp.status_code == 200
@@ -65,11 +79,16 @@ def test_api_scan_cancel_endpoint(client):
 
 
 def test_api_actions_endpoint(client):
-    with patch("sysmgr.disk.server.execute_file_action") as mock_action:
+    with patch("sysmgr.disk.server.execute_file_action", autospec=True) as mock_action:
         mock_action.return_value = ActionResult(success=True, message="Success", details=None)
         resp = client.post("/api/actions", json={"action": "open", "path": "C:\\test\\doc.txt"})
         assert resp.status_code == 200
         assert resp.json()["success"] is True
+        # Verify single ActionRequest object passed
+        assert mock_action.call_count == 1
+        call_arg = mock_action.call_args[0][0]
+        assert call_arg.action == "open"
+        assert call_arg.path == "C:\\test\\doc.txt"
 
 
 def test_api_actions_endpoint_invalid_payload(client):

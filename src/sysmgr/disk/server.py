@@ -32,9 +32,13 @@ async def execute_scan(scanner: DiskScanner, target_path: str) -> None:
     try:
         def on_progress(p: ScanProgress) -> None:
             global _latest_progress
+            if scanner is not _active_scanner:
+                return
             _latest_progress = p
 
             def notify() -> None:
+                if scanner is not _active_scanner:
+                    return
                 for q in list(_progress_queues):
                     try:
                         q.put_nowait(p)
@@ -47,6 +51,9 @@ async def execute_scan(scanner: DiskScanner, target_path: str) -> None:
                 pass
 
         tree, _ = await scanner.scan(target_path, progress_callback=on_progress)
+        if scanner is not _active_scanner:
+            return
+
         _current_scan_tree = tree
         _latest_progress = ScanProgress(
             status="completed",
@@ -63,19 +70,22 @@ async def execute_scan(scanner: DiskScanner, target_path: str) -> None:
                 pass
 
     except asyncio.CancelledError:
-        _latest_progress = ScanProgress(
-            status="failed",
-            current_path=target_path,
-            error_message="Scan cancelled",
-        )
-        for q in list(_progress_queues):
-            try:
-                q.put_nowait(_latest_progress)
-            except Exception:
-                pass
+        if scanner is _active_scanner:
+            _latest_progress = ScanProgress(
+                status="failed",
+                current_path=target_path,
+                error_message="Scan cancelled",
+            )
+            for q in list(_progress_queues):
+                try:
+                    q.put_nowait(_latest_progress)
+                except Exception:
+                    pass
         raise
 
     except Exception as exc:
+        if scanner is not _active_scanner:
+            return
         _latest_progress = ScanProgress(
             status="failed",
             current_path=target_path,
@@ -103,7 +113,7 @@ async def start_scan(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
-    if not isinstance(payload, dict) or "path" not in payload or not payload["path"]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("path"), str) or not payload["path"].strip():
         return JSONResponse({"error": "Missing or invalid 'path' parameter"}, status_code=400)
 
     target_path = payload["path"]
@@ -204,7 +214,8 @@ async def handle_actions(request: Request) -> JSONResponse:
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=400)
 
-    result = execute_file_action(action_req.action, action_req.path)
+    # Offload blocking file actions (e.g. powershell recycle) to worker thread
+    result = await asyncio.to_thread(execute_file_action, action_req)
     return JSONResponse(result.model_dump())
 
 
