@@ -36,5 +36,5 @@ def test_web_asset_content_structure():
     assert "/api/scan" in js
     assert "/api/actions" in js
     assert "scanLogBox" in js
-    assert "computeGeometry" in js
+    assert "getVisibleArcs" in js
     assert "btn-quick-path" in js

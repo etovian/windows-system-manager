@@ -327,7 +327,7 @@
     const containerHeight = elements.sunburstContainer.clientHeight || elements.sunburstContainer.offsetHeight || 650;
     const size = Math.max(480, Math.min(containerWidth, containerHeight, 720));
     const radius = size / 2;
-    const centerRadius = 88; // Center badge circle radius (170px width / 2 = 85px)
+    const centerRadius = 88; // Center badge circle radius (160px width / 2 = 80px + 8px gap)
     const maxVisibleLevels = 4;
     const ringWidth = (radius - centerRadius - 4) / maxVisibleLevels;
 
@@ -339,7 +339,6 @@
       .style("max-width", `${size}px`)
       .style("max-height", `${size}px`);
 
-    // Group for all radial arcs
     const g = svg.append("g");
 
     // Partition hierarchy
@@ -357,76 +356,17 @@
     // Vibrant DaisyDisk Palette assignment
     const colorScale = d3.scaleOrdinal(DAISY_PALETTE);
     state.colorScale = (d) => {
-      if (d.depth === 0) return "rgba(255, 255, 255, 0.08)";
-      if (d.data.name === "Other files") return "#546e7a";
-      // Derive color from root branch ancestor
-      let ancestor = d;
+      const node = d.node || d;
+      if (node.depth === 0) return "rgba(255, 255, 255, 0.08)";
+      if (node.data.name === "Other files") return "#546e7a";
+      let ancestor = node;
       while (ancestor.depth > 1) {
         ancestor = ancestor.parent;
       }
       const baseColor = d3.hsl(colorScale(ancestor.data.name || ancestor.data.path));
-      // Modulate lightness slightly with depth
-      baseColor.l = Math.max(0.32, Math.min(0.72, baseColor.l + (d.depth - 1) * 0.06));
+      baseColor.l = Math.max(0.32, Math.min(0.72, baseColor.l + (node.depth - 1) * 0.06));
       return baseColor.toString();
     };
-
-    // Calculate node arc geometry relative to any focused node
-    function computeGeometry(d, targetNode) {
-      if (d === targetNode) {
-        return {
-          x0: 0,
-          x1: 2 * Math.PI,
-          r0: 0,
-          r1: centerRadius,
-          relDepth: 0,
-          visible: false, // Center badge HTML renders the center
-        };
-      }
-
-      const angleSpan = Math.max(1e-9, targetNode.x1 - targetNode.x0);
-      const isDescendant =
-        d.x0 >= targetNode.x0 - 1e-9 &&
-        d.x1 <= targetNode.x1 + 1e-9 &&
-        d.depth > targetNode.depth;
-
-      if (!isDescendant) {
-        return {
-          x0: 0,
-          x1: 0,
-          r0: 0,
-          r1: 0,
-          relDepth: -1,
-          visible: false,
-        };
-      }
-
-      const relDepth = d.depth - targetNode.depth;
-      const x0 = Math.max(0, Math.min(2 * Math.PI, ((d.x0 - targetNode.x0) / angleSpan) * 2 * Math.PI));
-      const x1 = Math.max(0, Math.min(2 * Math.PI, ((d.x1 - targetNode.x0) / angleSpan) * 2 * Math.PI));
-
-      if (relDepth < 1 || relDepth > maxVisibleLevels || x1 <= x0) {
-        return {
-          x0,
-          x1,
-          r0: centerRadius + Math.min(relDepth, maxVisibleLevels + 1) * ringWidth,
-          r1: centerRadius + Math.min(relDepth, maxVisibleLevels + 1) * ringWidth,
-          relDepth,
-          visible: false,
-        };
-      }
-
-      const r0 = centerRadius + (relDepth - 1) * ringWidth + 1.5;
-      const r1 = centerRadius + relDepth * ringWidth - 1.5;
-
-      return {
-        x0,
-        x1,
-        r0,
-        r1,
-        relDepth,
-        visible: (x1 - x0) >= 0.003,
-      };
-    }
 
     // Arc Generator
     const arc = d3
@@ -438,80 +378,113 @@
       .innerRadius((d) => d.r0)
       .outerRadius((d) => d.r1);
 
-    // Initial geometry for all descendants (slice(1) omits the root)
-    root.each((d) => {
-      d.current = computeGeometry(d, root);
-    });
+    // Compute geometry for visible arcs (up to maxVisibleLevels deep) relative to targetNode
+    function getVisibleArcs(focusedNode) {
+      const span = Math.max(1e-9, focusedNode.x1 - focusedNode.x0);
 
-    // Render Arcs
-    const path = g
-      .append("g")
-      .selectAll("path")
-      .data(root.descendants().slice(1))
-      .join("path")
-      .attr("class", "sunburst-arc")
-      .attr("fill", (d) => state.colorScale(d))
-      .attr("fill-opacity", (d) => (d.current.visible ? 1 : 0))
-      .attr("pointer-events", (d) => (d.current.visible ? "auto" : "none"))
-      .attr("d", (d) => arc(d.current));
+      return focusedNode
+        .descendants()
+        .filter((d) => d !== focusedNode && d.depth - focusedNode.depth <= maxVisibleLevels)
+        .map((d) => {
+          const relDepth = d.depth - focusedNode.depth;
+          const x0 = Math.max(0, Math.min(2 * Math.PI, ((d.x0 - focusedNode.x0) / span) * 2 * Math.PI));
+          const x1 = Math.max(0, Math.min(2 * Math.PI, ((d.x1 - focusedNode.x0) / span) * 2 * Math.PI));
+          const r0 = centerRadius + (relDepth - 1) * ringWidth + 1.5;
+          const r1 = centerRadius + relDepth * ringWidth - 1.5;
+          return { node: d, x0, x1, r0, r1, relDepth };
+        })
+        .filter((a) => a.x1 - a.x0 >= 0.003);
+    }
 
-    // Arc Hover & Tooltip Events
-    path
-      .on("mouseenter", function (event, d) {
-        highlightItem(d);
-        updateCenterBadge(d.data.name, d.value, d.data.path);
-      })
-      .on("mouseleave", function () {
-        resetHighlight();
-        resetCenterBadge();
-      })
-      .on("click", function (event, p) {
-        event.stopPropagation();
-        if (p.children && p.children.length > 0) {
-          zoomToNode(p);
-        } else {
-          showItemContextMenu(event, p.data);
-        }
-      })
-      .on("contextmenu", function (event, d) {
-        event.preventDefault();
-        showItemContextMenu(event, d.data);
-      });
+    // Render concentric wheel slices
+    function renderWheel(targetNode, animate = true) {
+      const visibleArcs = getVisibleArcs(targetNode);
+
+      const paths = g
+        .selectAll(".sunburst-arc")
+        .data(visibleArcs, (d) => d.node.data.path);
+
+      // EXIT
+      if (animate) {
+        paths
+          .exit()
+          .transition()
+          .duration(300)
+          .attr("fill-opacity", 0)
+          .remove();
+      } else {
+        paths.exit().remove();
+      }
+
+      // ENTER
+      const enter = paths
+        .enter()
+        .append("path")
+        .attr("class", "sunburst-arc")
+        .attr("fill", (d) => state.colorScale(d.node))
+        .attr("fill-opacity", animate ? 0 : 1)
+        .attr("d", (d) => arc(d))
+        .on("mouseenter", function (event, d) {
+          highlightItem(d.node);
+          updateCenterBadge(d.node.data.name, d.node.value, d.node.data.path);
+        })
+        .on("mouseleave", function () {
+          resetHighlight();
+          resetCenterBadge();
+        })
+        .on("click", function (event, d) {
+          event.stopPropagation();
+          if (d.node.children && d.node.children.length > 0) {
+            zoomToNode(d.node);
+          } else {
+            showItemContextMenu(event, d.node.data);
+          }
+        })
+        .on("contextmenu", function (event, d) {
+          event.preventDefault();
+          showItemContextMenu(event, d.node.data);
+        });
+
+      // MERGE ENTER + UPDATE
+      const update = enter.merge(paths);
+
+      if (animate) {
+        update
+          .transition()
+          .duration(400)
+          .attr("fill-opacity", 1)
+          .attrTween("d", function (d) {
+            const prev = this._current || d;
+            const interpolate = d3.interpolate(prev, d);
+            this._current = d;
+            return (t) => arc(interpolate(t));
+          });
+      } else {
+        update
+          .attr("fill-opacity", 1)
+          .attr("d", function (d) {
+            this._current = d;
+            return arc(d);
+          });
+      }
+    }
 
     // Zoom & Drilldown Handler
     function zoomToNode(targetNode) {
+      if (!targetNode) return;
       state.focusedNode = targetNode;
 
-      root.each((d) => {
-        d.target = computeGeometry(d, targetNode);
-      });
-
-      const t = g.transition().duration(750);
-
-      path
-        .transition(t)
-        .tween("data", (d) => {
-          const i = d3.interpolate(d.current || d.target, d.target);
-          return (step) => {
-            d.current = i(step);
-          };
-        })
-        .filter(function (d) {
-          return +this.getAttribute("fill-opacity") > 0 || d.target.visible;
-        })
-        .attr("fill-opacity", (d) => (d.target.visible ? 1 : 0))
-        .attr("pointer-events", (d) => (d.target.visible ? "auto" : "none"))
-        .attrTween("d", (d) => () => arc(d.current));
-
+      renderWheel(targetNode, true);
       renderBreadcrumb();
       renderTopList();
       resetCenterBadge();
     }
 
-    // Attach zoom to state for external caller
+    // Attach zoom to state for external callers
     state.zoomTo = zoomToNode;
 
-    // Initial Badge and Sidebar Display
+    // Initial render
+    renderWheel(root, false);
     resetCenterBadge();
     renderBreadcrumb();
     renderTopList();
@@ -652,12 +625,16 @@
 
   // Bidirectional Highlighting
   function highlightItem(targetNode) {
+    if (!targetNode || !targetNode.data) return;
     // Dim other arcs
     d3.selectAll(".sunburst-arc").classed("dimmed", true).classed("highlighted", false);
 
     // Highlight target arc and its ancestors/descendants
     d3.selectAll(".sunburst-arc")
-      .filter((d) => d && d.data.path === targetNode.data.path)
+      .filter((d) => {
+        const n = d.node || d;
+        return n && n.data && n.data.path === targetNode.data.path;
+      })
       .classed("dimmed", false)
       .classed("highlighted", true);
 
