@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>sysmgr - DaisyDisk Visualizer</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E<circle cx=%2250%22 cy=%2250%22 r=%2245%22 fill=%22%2329b6f6%22/></svg>">
+</head>
+<body class="daisydisk-theme">
+  <!-- Top Navigation Header -->
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-logo">💿</span>
+      <h1 class="brand-title">sysmgr <span class="brand-sub">disk visualizer</span></h1>
+    </div>
+
+    <!-- Breadcrumb pills navigation -->
+    <nav class="breadcrumb-container" id="breadcrumb-container" style="display: none;">
+      <div class="breadcrumb" id="breadcrumb">
+        <!-- Rendered breadcrumb items -->
+      </div>
+    </nav>
+
+    <!-- Header Actions -->
+    <div class="header-actions">
+      <button id="btn-rescan" class="btn btn-secondary" style="display: none;" title="Rescan current folder">
+        <span class="icon">🔄</span> Rescan
+      </button>
+      <button id="btn-change-source" class="btn btn-secondary" style="display: none;" title="Scan another disk or folder">
+        <span class="icon">📁</span> Scan Another Source
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+    <!-- View 1: Drive & Source Selector -->
+    <section id="drives-view" class="view-panel active">
+      <div class="view-header">
+        <h2>Select a Drive or Folder to Inspect</h2>
+        <p class="subtitle">DaisyDisk-style interactive storage breakdown and space recovery</p>
+      </div>
+
+      <div class="drives-grid" id="drives-list">
+        <!-- Drive cards loaded from /api/drives -->
+        <div class="loading-spinner">Loading mounted drives...</div>
+      </div>
+
+      <div class="custom-path-box">
+        <h3>Or Scan a Specific Directory</h3>
+        <form id="custom-path-form" class="custom-path-form">
+          <input type="text" id="custom-path-input" placeholder="e.g. C:\Users or D:\Projects" autocomplete="off" />
+          <button type="submit" class="btn btn-primary" id="btn-scan-path">Scan Directory</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- View 2: Visualizer View (Sunburst & Top List) -->
+    <section id="visualizer-view" class="view-panel" style="display: none;">
+      <div class="visualizer-layout">
+        <!-- Left: Sunburst Radial Multi-ring Chart -->
+        <div class="sunburst-wrapper">
+          <div class="sunburst-container" id="sunburst-container">
+            <svg id="sunburst-svg"></svg>
+            <!-- Center Circle Info Overlay -->
+            <div class="sunburst-center" id="sunburst-center">
+              <div class="center-badge-content">
+                <span class="center-name" id="center-name">Ready</span>
+                <span class="center-size" id="center-size">0 B</span>
+                <span class="center-meta" id="center-meta">Click slice to drill down</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Top List Ranked Panel -->
+        <aside class="top-list-panel" id="top-list-panel">
+          <div class="top-list-header">
+            <h3>Directory Contents</h3>
+            <span class="top-list-count" id="top-list-count">0 items</span>
+          </div>
+          <div class="top-list" id="top-list">
+            <!-- Populated dynamically -->
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- View 3: Scanning Progress Modal / Overlay -->
+    <div id="scan-overlay" class="scan-overlay" style="display: none;">
+      <div class="scan-modal">
+        <div class="scan-radar-pulse"></div>
+        <h3 id="scan-modal-title">Scanning Directory...</h3>
+        <p class="scan-path-label" id="scan-current-path">C:\</p>
+        
+        <div class="progress-track">
+          <div class="progress-fill" id="scan-progress-bar" style="width: 0%;"></div>
+        </div>
+
+        <div class="scan-stats-row">
+          <span id="scan-files-scanned">0 files</span>
+          <span id="scan-bytes-scanned">0 B</span>
+          <span id="scan-elapsed">0.0s</span>
+        </div>
+
+        <button id="btn-cancel-scan" class="btn btn-danger">Cancel Scan</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Context Menu for File Actions -->
+  <div id="context-menu" class="context-menu" style="display: none;">
+    <div class="context-header" id="context-menu-path">/selected/path</div>
+    <ul class="context-menu-list">
+      <li data-action="open"><span class="menu-icon">📂</span> Open with Default App</li>
+      <li data-action="reveal"><span class="menu-icon">🗂️</span> Reveal in File Explorer</li>
+      <li data-action="terminal"><span class="menu-icon">💻</span> Open Terminal Here</li>
+      <li data-action="copy_path"><span class="menu-icon">📋</span> Copy Path</li>
+      <li data-action="properties"><span class="menu-icon">ℹ️</span> View Properties</li>
+      <li class="menu-divider"></li>
+      <li data-action="recycle" class="menu-danger"><span class="menu-icon">🗑️</span> Move to Recycle Bin</li>
+    </ul>
+  </div>
+
+  <!-- Properties Dialog Modal -->
+  <dialog id="properties-modal" class="properties-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="prop-title">Item Properties</h3>
+        <button id="btn-close-properties" class="btn-icon">✕</button>
+      </div>
+      <div class="modal-body" id="prop-body">
+        <!-- Rendered property details -->
+      </div>
+      <div class="modal-footer">
+        <button id="btn-properties-ok" class="btn btn-primary">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts: Standalone D3.js and Application Logic -->
+  <script src="d3.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
