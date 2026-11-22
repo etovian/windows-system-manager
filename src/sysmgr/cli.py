@@ -1,19 +1,17 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Optional
 import webbrowser
 import typer
-import uvicorn
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from rich.panel import Panel
 
 import sysmgr
 from sysmgr.core.models import DiagnosticStatus
-import sysmgr.disk.drives as disk_drives
-from sysmgr.disk.scanner import DiskScanner
-from sysmgr.disk.server import create_disk_app
 from sysmgr.probes import create_default_engine
 from sysmgr.remediations import (
     RemediationContext,
@@ -360,9 +358,16 @@ def disk(
     ),
 ):
     """Interactive DaisyDisk-style disk space visualizer and terminal usage summary."""
+    if path is not None and not os.path.exists(path):
+        console.print(f"[bold red]Error:[/bold red] Target path does not exist: {escape(path)}")
+        raise typer.Exit(code=1)
+
     if cli:
+        from sysmgr.disk.drives import get_system_drives
+        from sysmgr.disk.scanner import DiskScanner
+
         if path is None:
-            drives = disk_drives.get_system_drives()
+            drives = get_system_drives()
             table = Table(title="System Storage Drives")
             table.add_column("Mount", style="cyan")
             table.add_column("Label", style="white")
@@ -379,7 +384,7 @@ def disk(
                 bar_str = f"[{bar_color}]{'#' * filled}{'-' * (bar_width - filled)}[/{bar_color}] {drive.percent_used:.1f}%"
                 table.add_row(
                     drive.mountpoint,
-                    drive.label or "-",
+                    escape(drive.label or "-"),
                     _format_bytes(drive.total_bytes),
                     _format_bytes(drive.free_bytes),
                     _format_bytes(drive.used_bytes),
@@ -392,10 +397,10 @@ def disk(
 
         # Path provided: scan path and display summary in Rich Table
         scanner = DiskScanner()
-        with console.status(f"[bold cyan]Scanning {path}...[/bold cyan]"):
+        with console.status(f"[bold cyan]Scanning {escape(path)}...[/bold cyan]"):
             root_node, _ = asyncio.run(scanner.scan(path))
 
-        table = Table(title=f"Disk Usage: {path} (Total: {_format_bytes(root_node.size_bytes)})")
+        table = Table(title=f"Disk Usage: {escape(path)} (Total: {_format_bytes(root_node.size_bytes)})")
         table.add_column("Name", style="cyan")
         table.add_column("Type", style="magenta")
         table.add_column("Size", justify="right", style="green")
@@ -406,22 +411,27 @@ def disk(
                 pct = (child.size_bytes / root_node.size_bytes * 100.0) if root_node.size_bytes > 0 else 0.0
                 item_type = "Directory" if child.is_dir else "File"
                 table.add_row(
-                    child.name,
+                    escape(child.name),
                     item_type,
                     _format_bytes(child.size_bytes),
                     f"{pct:.1f}%",
                 )
         else:
             item_type = "Directory" if root_node.is_dir else "File"
-            table.add_row(root_node.name, item_type, _format_bytes(root_node.size_bytes), "100.0%")
+            table.add_row(escape(root_node.name), item_type, _format_bytes(root_node.size_bytes), "100.0%")
 
         console.print()
         console.print(table)
         console.print()
         return
 
-    # Default web visualizer mode
+    # Default web visualizer mode: lazy-import server dependencies
+    import uvicorn
+    from sysmgr.disk.server import create_disk_app
+
     url = f"http://127.0.0.1:{port}"
+    if path is not None:
+        console.print(f"[cyan]Target directory specified:[/cyan] {escape(path)}")
     console.print(f"[bold green]Starting disk space visualizer at:[/bold green] [link={url}]{url}[/link]")
     console.print("[dim]Press Ctrl+C to stop the server.[/dim]")
     if not no_browser:

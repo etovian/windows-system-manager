@@ -40,6 +40,21 @@ def test_disk_cli_summary_mode_folder(tmp_path):
     assert "big_file.dat" in result.output
 
 
+def test_disk_cli_summary_mode_single_file(tmp_path):
+    f = tmp_path / "single_file.log"
+    f.write_bytes(b"log data" * 100)
+    result = runner.invoke(app, ["disk", str(f), "--cli"])
+    assert result.exit_code == 0
+    assert "single_file.log" in result.output
+    assert "File" in result.output
+
+
+def test_disk_cli_invalid_path_exits_with_error():
+    result = runner.invoke(app, ["disk", "C:\\nonexistent_dir_998877", "--cli"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.output.lower()
+
+
 def test_disk_web_mode_invokes_uvicorn():
     with patch("uvicorn.run") as mock_uvicorn, \
          patch("webbrowser.open") as mock_browser:
