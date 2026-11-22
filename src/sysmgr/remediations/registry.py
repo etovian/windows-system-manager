@@ -47,8 +47,12 @@ class RemediationRegistry:
 
     def register_rollback(self, action_id: str):
         def decorator(fn: RollbackPlanFunc):
-            if action_id in self._handlers:
-                self._handlers[action_id].rollback_generator = fn
+            if action_id not in self._handlers:
+                raise KeyError(
+                    f"Cannot register rollback for unknown remediation action '{action_id}'. "
+                    "Ensure the remediation handler is registered first."
+                )
+            self._handlers[action_id].rollback_generator = fn
             return fn
         return decorator
 

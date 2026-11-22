@@ -1,4 +1,3 @@
-import asyncio
 from typing import Optional
 from sysmgr.core.engine import ProbeEngine
 from sysmgr.probes import create_default_engine
@@ -39,9 +38,18 @@ class RemediationRunner:
                 changes_made=[f"[DRY RUN] Would execute {handler_entry.description} (Scope: {handler_entry.scope.value})"],
             )
 
-        # Persistent action: Generate and commit rollback plan
+        # Persistent action: Generate and commit rollback plan (fail closed if missing)
         rollback_file_path = None
-        if handler_entry.scope == RemediationScope.PERSISTENT and handler_entry.rollback_generator:
+        if handler_entry.scope == RemediationScope.PERSISTENT:
+            if not handler_entry.rollback_generator:
+                return RemediationResult(
+                    action_id=action_id,
+                    success=False,
+                    error=(
+                        f"Persistent remediation '{action_id}' requires a registered rollback generator "
+                        "before execution to prevent unrecoverable system alterations."
+                    ),
+                )
             try:
                 plan = await handler_entry.rollback_generator()
                 saved_path = self.rollback_manager.save_and_commit(plan)

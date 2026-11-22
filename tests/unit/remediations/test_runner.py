@@ -178,8 +178,41 @@ def test_registry_list_all_and_decorators(mock_registry):
     assert handlers["dummy-persistent"].rollback_generator is not None
 
     # Test global decorator
-    @remediation_handler(action_id="global-test", description="Global test handler")
-    async def global_handler(ctx: RemediationContext):
-        return []
+    try:
+        @remediation_handler(action_id="global-test", description="Global test handler")
+        async def global_handler(ctx: RemediationContext):
+            return []
 
-    assert default_remediation_registry.get("global-test") is not None
+        assert default_remediation_registry.get("global-test") is not None
+    finally:
+        default_remediation_registry._handlers.pop("global-test", None)
+
+
+def test_register_rollback_unknown_action_raises_key_error():
+    reg = RemediationRegistry()
+    with pytest.raises(KeyError, match="unknown remediation action"):
+        @reg.register_rollback("unknown-action")
+        async def fake_rollback():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_runner_persistent_without_rollback_generator_fails_closed():
+    reg = RemediationRegistry()
+
+    @reg.register(
+        action_id="unsafe-persistent",
+        description="Persistent action lacking rollback generator",
+        scope=RemediationScope.PERSISTENT,
+        risk_level=RiskLevel.CONFIRMATION_REQUIRED,
+    )
+    async def unsafe_handler(ctx: RemediationContext):
+        return ["Should never execute"]
+
+    runner = RemediationRunner(registry=reg)
+    res = await runner.execute("unsafe-persistent", RemediationContext())
+
+    assert res.success is False
+    assert "requires a registered rollback generator" in res.error
+    assert res.changes_made == []
+
