@@ -2,13 +2,18 @@ import asyncio
 import json
 from pathlib import Path
 from typing import Optional
+import webbrowser
 import typer
+import uvicorn
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
 import sysmgr
 from sysmgr.core.models import DiagnosticStatus
+import sysmgr.disk.drives as disk_drives
+from sysmgr.disk.scanner import DiskScanner
+from sysmgr.disk.server import create_disk_app
 from sysmgr.probes import create_default_engine
 from sysmgr.remediations import (
     RemediationContext,
@@ -317,6 +322,111 @@ def knowledge(
 
     content = match.read_text(encoding="utf-8")
     console.print(Panel(content, title=f"Runbook: {match.name}", border_style="cyan"))
+
+
+def _format_bytes(size_bytes: float) -> str:
+    """Format byte counts into human-readable strings."""
+    val = float(size_bytes)
+    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
+        if val < 1024.0 or unit == "PB":
+            if unit == "B":
+                return f"{int(val)} B"
+            return f"{val:.1f} {unit}"
+        val /= 1024.0
+    return f"{val:.1f} PB"
+
+
+@app.command()
+def disk(
+    path: Optional[str] = typer.Argument(
+        None,
+        help="Target drive or directory to inspect (e.g. C:\\ or C:\\dev)",
+    ),
+    cli: bool = typer.Option(
+        False,
+        "--cli",
+        help="Output a rich terminal summary instead of launching the web dashboard",
+    ),
+    port: int = typer.Option(
+        8765,
+        "--port",
+        "-p",
+        help="Port number for local web visualizer server",
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="Do not automatically open default web browser",
+    ),
+):
+    """Interactive DaisyDisk-style disk space visualizer and terminal usage summary."""
+    if cli:
+        if path is None:
+            drives = disk_drives.get_system_drives()
+            table = Table(title="System Storage Drives")
+            table.add_column("Mount", style="cyan")
+            table.add_column("Label", style="white")
+            table.add_column("Total", justify="right")
+            table.add_column("Free", justify="right")
+            table.add_column("Used", justify="right")
+            table.add_column("% Bar", justify="left")
+
+            for drive in drives:
+                bar_width = 15
+                filled = int(round((drive.percent_used / 100.0) * bar_width))
+                filled = min(max(filled, 0), bar_width)
+                bar_color = "red" if drive.percent_used >= 90 else "yellow" if drive.percent_used >= 75 else "green"
+                bar_str = f"[{bar_color}]{'#' * filled}{'-' * (bar_width - filled)}[/{bar_color}] {drive.percent_used:.1f}%"
+                table.add_row(
+                    drive.mountpoint,
+                    drive.label or "-",
+                    _format_bytes(drive.total_bytes),
+                    _format_bytes(drive.free_bytes),
+                    _format_bytes(drive.used_bytes),
+                    bar_str,
+                )
+            console.print()
+            console.print(table)
+            console.print()
+            return
+
+        # Path provided: scan path and display summary in Rich Table
+        scanner = DiskScanner()
+        with console.status(f"[bold cyan]Scanning {path}...[/bold cyan]"):
+            root_node, _ = asyncio.run(scanner.scan(path))
+
+        table = Table(title=f"Disk Usage: {path} (Total: {_format_bytes(root_node.size_bytes)})")
+        table.add_column("Name", style="cyan")
+        table.add_column("Type", style="magenta")
+        table.add_column("Size", justify="right", style="green")
+        table.add_column("% of Total", justify="right", style="yellow")
+
+        if root_node.children:
+            for child in root_node.children:
+                pct = (child.size_bytes / root_node.size_bytes * 100.0) if root_node.size_bytes > 0 else 0.0
+                item_type = "Directory" if child.is_dir else "File"
+                table.add_row(
+                    child.name,
+                    item_type,
+                    _format_bytes(child.size_bytes),
+                    f"{pct:.1f}%",
+                )
+        else:
+            item_type = "Directory" if root_node.is_dir else "File"
+            table.add_row(root_node.name, item_type, _format_bytes(root_node.size_bytes), "100.0%")
+
+        console.print()
+        console.print(table)
+        console.print()
+        return
+
+    # Default web visualizer mode
+    url = f"http://127.0.0.1:{port}"
+    console.print(f"[bold green]Starting disk space visualizer at:[/bold green] [link={url}]{url}[/link]")
+    console.print("[dim]Press Ctrl+C to stop the server.[/dim]")
+    if not no_browser:
+        webbrowser.open(url)
+    uvicorn.run(create_disk_app(), host="127.0.0.1", port=port, log_level="warning")
 
 
 if __name__ == "__main__":
