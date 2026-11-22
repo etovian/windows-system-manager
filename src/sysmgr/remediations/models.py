@@ -1,9 +1,10 @@
+import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
-from sysmgr.core.models import DiagnosticResult, RiskLevel
+from sysmgr.core.models import DiagnosticResult
 
 
 class RemediationScope(str, Enum):
@@ -40,7 +41,7 @@ class RollbackPlan(BaseModel):
             "",
             "## Pre-Change Baseline State",
             "```json",
-            f"{self.pre_state}",
+            json.dumps(self.pre_state, indent=2),
             "```",
             "",
             "## Automated Reversal Commands",
