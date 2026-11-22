@@ -10,6 +10,7 @@ from sysmgr.disk.models import (
     ScanProgress,
 )
 from sysmgr.disk.scanner import DiskScanner
+from sysmgr.disk.server import create_disk_app
 
 __all__ = [
     "ActionRequest",
@@ -18,6 +19,7 @@ __all__ = [
     "DriveInfo",
     "FileNode",
     "ScanProgress",
+    "create_disk_app",
     "execute_file_action",
     "get_system_drives",
     "is_protected_system_path",
