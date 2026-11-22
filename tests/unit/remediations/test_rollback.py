@@ -45,4 +45,25 @@ def test_rollback_manager_dry_run_does_not_write_or_commit(tmp_path, monkeypatch
 
     file_path = manager.save_and_commit(plan, dry_run=True)
     assert not file_path.exists()
+    assert not docs_rollback.exists()
     assert mock_run.call_count == 0
+
+
+def test_rollback_manager_git_failure_retains_file(tmp_path, monkeypatch):
+    docs_rollback = tmp_path / "docs" / "rollback"
+    manager = RollbackManager(rollback_dir=docs_rollback)
+
+    plan = RollbackPlan(
+        action_id="test-action",
+        title="Test Rollback",
+        target_subsystem="services",
+    )
+
+    # Simulate git CLI failure (e.g. FileNotFoundError / OSError)
+    monkeypatch.setattr("subprocess.run", MagicMock(side_effect=FileNotFoundError("git not found")))
+
+    file_path = manager.save_and_commit(plan, dry_run=False)
+    # File must still be written to disk despite git failure
+    assert file_path.exists()
+    assert "Test Rollback" in file_path.read_text(encoding="utf-8")
+
