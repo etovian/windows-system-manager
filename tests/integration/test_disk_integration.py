@@ -5,16 +5,14 @@ from starlette.testclient import TestClient
 from sysmgr.disk.drives import get_system_drives
 from sysmgr.disk.scanner import DiskScanner
 from sysmgr.disk.server import create_disk_app
-from sysmgr.disk.models import ActionRequest
-from sysmgr.disk.actions import execute_file_action
 
 
 @pytest.mark.asyncio
 async def test_live_drive_discovery():
     drives = get_system_drives()
     assert len(drives) >= 1
-    mounts = [d.mountpoint for d in drives]
-    assert any("C:" in m for m in mounts)
+    mounts = [d.mountpoint.lower() for d in drives]
+    assert any("c:" in m for m in mounts)
     for d in drives:
         assert d.total_bytes > 0
         assert 0.0 <= d.percent_used <= 100.0
@@ -41,29 +39,28 @@ def test_live_server_endpoints_flow(tmp_path: Path):
     (tmp_path / "test.txt").write_text("sample content")
 
     app = create_disk_app()
-    client = TestClient(app)
+    with TestClient(app) as client:
+        # 1. Test Drives API
+        drives_resp = client.get("/api/drives")
+        assert drives_resp.status_code == 200
+        assert len(drives_resp.json()) >= 1
 
-    # 1. Test Drives API
-    drives_resp = client.get("/api/drives")
-    assert drives_resp.status_code == 200
-    assert len(drives_resp.json()) >= 1
+        # 2. Test Scan API
+        scan_resp = client.post("/api/scan", json={"path": str(tmp_path)})
+        assert scan_resp.status_code == 200
+        assert scan_resp.json()["status"] == "scan_started"
 
-    # 2. Test Scan API
-    scan_resp = client.post("/api/scan", json={"path": str(tmp_path)})
-    assert scan_resp.status_code == 200
-    assert scan_resp.json()["status"] == "scan_started"
+        # 3. Test Actions API (properties)
+        action_resp = client.post(
+            "/api/actions", json={"action": "properties", "path": str(tmp_path / "test.txt")}
+        )
+        assert action_resp.status_code == 200
+        assert action_resp.json()["success"] is True
+        assert action_resp.json()["details"]["size_bytes"] == len("sample content")
 
-    # 3. Test Actions API (properties)
-    action_resp = client.post(
-        "/api/actions", json={"action": "properties", "path": str(tmp_path / "test.txt")}
-    )
-    assert action_resp.status_code == 200
-    assert action_resp.json()["success"] is True
-    assert action_resp.json()["details"]["size_bytes"] == len("sample content")
-
-    # 4. Test Actions API (copy_path)
-    copy_resp = client.post(
-        "/api/actions", json={"action": "copy_path", "path": str(tmp_path / "test.txt")}
-    )
-    assert copy_resp.status_code == 200
-    assert copy_resp.json()["success"] is True
+        # 4. Test Actions API (copy_path)
+        copy_resp = client.post(
+            "/api/actions", json={"action": "copy_path", "path": str(tmp_path / "test.txt")}
+        )
+        assert copy_resp.status_code == 200
+        assert copy_resp.json()["success"] is True
