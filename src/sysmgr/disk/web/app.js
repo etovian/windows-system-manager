@@ -48,6 +48,7 @@
     customPathInput: document.getElementById("custom-path-input"),
     btnRescan: document.getElementById("btn-rescan"),
     btnChangeSource: document.getElementById("btn-change-source"),
+    btnVisualizerUp: document.getElementById("btn-visualizer-up"),
     breadcrumbContainer: document.getElementById("breadcrumb-container"),
     breadcrumb: document.getElementById("breadcrumb"),
     sunburstContainer: document.getElementById("sunburst-container"),
@@ -666,14 +667,61 @@
     const node = state.focusedNode;
     elements.centerName.textContent = node.data.name || "Root";
     elements.centerSize.textContent = formatBytes(node.data.size_bytes || node.value);
-    elements.centerMeta.textContent = node.parent ? "Click center to go up" : "Directory Root";
+    if (node.parent) {
+      elements.centerMeta.textContent = "Click center to go up";
+    } else {
+      const scanPath = (node.data && node.data.path) || state.activeScanPath || "";
+      const parts = scanPath.replace(/\//g, "\\").split("\\").filter(Boolean);
+      if (parts.length > 1) {
+        elements.centerMeta.textContent = "Click center to go up to parent";
+      } else {
+        elements.centerMeta.textContent = "Click center for all drives";
+      }
+    }
+  }
+
+  // Navigate Up One Directory Level (inside tree or to filesystem parent)
+  function navigateUpOneLevel() {
+    if (!state.focusedNode) return;
+
+    // 1. If inside the scan tree and not at scan root: zoom out to parent node
+    if (state.focusedNode.parent && state.zoomTo) {
+      state.zoomTo(state.focusedNode.parent);
+      return;
+    }
+
+    // 2. If at scan root: navigate to parent directory outside the scan tree
+    const scanRootPath = state.rootNode ? state.rootNode.data.path : (state.activeScanPath || "");
+    if (!scanRootPath) {
+      switchToDrives();
+      return;
+    }
+
+    const normalized = scanRootPath.replace(/\//g, "\\");
+    const parts = normalized.split("\\").filter(Boolean);
+
+    // If at drive root (e.g. "C:" or "C:\"), go to Computer / All Drives
+    if (parts.length <= 1) {
+      switchToDrives();
+      return;
+    }
+
+    // Remove leaf folder to get parent directory
+    parts.pop();
+    let parentPath = "";
+    if (parts[0].includes(":")) {
+      parentPath = parts.length === 1 ? `${parts[0]}\\` : parts.join("\\");
+    } else {
+      parentPath = parts.join("\\");
+    }
+
+    switchToDrives();
+    openDirectoryBrowser(parentPath);
   }
 
   // Center Circle Click -> Drill Up
   elements.sunburstCenter.addEventListener("click", () => {
-    if (state.focusedNode && state.focusedNode.parent && state.zoomTo) {
-      state.zoomTo(state.focusedNode.parent);
-    }
+    navigateUpOneLevel();
   });
 
   // Breadcrumb Navigation
@@ -681,27 +729,82 @@
     if (!state.focusedNode) return;
     elements.breadcrumb.innerHTML = "";
 
-    // Ancestor chain from root to current focused
-    const chain = state.focusedNode.ancestors().reverse();
+    const scanRootPath = state.rootNode ? state.rootNode.data.path : (state.activeScanPath || "");
+    const normalizedRoot = (scanRootPath || "").replace(/\//g, "\\");
+    const rootParts = normalizedRoot.split("\\").filter(Boolean);
 
-    chain.forEach((node, idx) => {
-      if (idx > 0) {
-        const sep = document.createElement("span");
-        sep.className = "breadcrumb-separator";
-        sep.textContent = "›";
-        elements.breadcrumb.appendChild(sep);
+    function appendSeparator() {
+      const sep = document.createElement("span");
+      sep.className = "breadcrumb-separator";
+      sep.textContent = "›";
+      elements.breadcrumb.appendChild(sep);
+    }
+
+    // 1. "Computer" / All Drives root crumb
+    const computerCrumb = document.createElement("button");
+    computerCrumb.type = "button";
+    computerCrumb.className = "breadcrumb-item above-tree";
+    computerCrumb.innerHTML = `<span class="crumb-icon">💻</span>Computer`;
+    computerCrumb.title = "Return to All Drives";
+    computerCrumb.addEventListener("click", () => {
+      switchToDrives();
+    });
+    elements.breadcrumb.appendChild(computerCrumb);
+
+    // 2. Above-tree ancestor folder crumbs (from drive root down to the parent of scanRoot)
+    let accumulated = "";
+    for (let i = 0; i < rootParts.length - 1; i++) {
+      appendSeparator();
+      const part = rootParts[i];
+      if (i === 0 && part.includes(":")) {
+        accumulated = `${part}\\`;
+      } else {
+        accumulated = accumulated.endsWith("\\") ? `${accumulated}${part}` : `${accumulated}\\${part}`;
       }
 
+      const targetPath = accumulated;
+      const isDrive = i === 0 && part.includes(":");
+      const icon = isDrive ? "💽" : "📁";
+
+      const crumb = document.createElement("button");
+      crumb.type = "button";
+      crumb.className = "breadcrumb-item above-tree";
+      crumb.innerHTML = `<span class="crumb-icon">${icon}</span>${escapeHtml(part)}`;
+      crumb.title = `Browse ${targetPath}`;
+      crumb.addEventListener("click", () => {
+        switchToDrives();
+        openDirectoryBrowser(targetPath);
+      });
+      elements.breadcrumb.appendChild(crumb);
+    }
+
+    // 3. In-tree hierarchy chain (from state.rootNode down to state.focusedNode)
+    const inTreeChain = state.focusedNode.ancestors().reverse();
+
+    inTreeChain.forEach((node) => {
+      appendSeparator();
+
+      const isCurrent = node === state.focusedNode;
+      const isScanRoot = node === state.rootNode;
+      const nodeName = isScanRoot
+        ? (rootParts[rootParts.length - 1] || node.data.name || node.data.path)
+        : (node.data.name || node.data.path);
+      const isDir = node.data.is_dir || (node.children && node.children.length > 0);
+      const icon = isDir ? "📁" : "📄";
+
       const pill = document.createElement("button");
-      pill.className = `breadcrumb-item ${node === state.focusedNode ? "active" : ""}`;
-      pill.textContent = node.data.name || node.data.path;
+      pill.type = "button";
+      pill.className = `breadcrumb-item ${isCurrent ? "active" : ""}`;
+      pill.innerHTML = `<span class="crumb-icon">${icon}</span>${escapeHtml(nodeName)}`;
       pill.title = node.data.path;
 
-      pill.addEventListener("click", () => {
-        if (state.zoomTo && node !== state.focusedNode) {
-          state.zoomTo(node);
-        }
-      });
+      if (!isCurrent) {
+        pill.addEventListener("click", () => {
+          if (state.zoomTo) {
+            state.zoomTo(node);
+          }
+        });
+      }
 
       elements.breadcrumb.appendChild(pill);
     });
@@ -959,6 +1062,23 @@
 
   elements.btnChangeSource.addEventListener("click", () => {
     switchToDrives();
+  });
+
+  if (elements.btnVisualizerUp) {
+    elements.btnVisualizerUp.addEventListener("click", () => {
+      navigateUpOneLevel();
+    });
+  }
+
+  // Keyboard navigation: Alt+Up or Backspace to go up a level in visualizer
+  document.addEventListener("keydown", (e) => {
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (elements.visualizerView && elements.visualizerView.classList.contains("active")) {
+      if ((e.altKey && e.key === "ArrowUp") || e.key === "Backspace") {
+        e.preventDefault();
+        navigateUpOneLevel();
+      }
+    }
   });
 
   elements.btnCancelScan.addEventListener("click", () => {

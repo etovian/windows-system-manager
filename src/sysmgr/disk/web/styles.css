@@ -89,9 +89,28 @@ body.daisydisk-theme {
 
 .breadcrumb-container {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   overflow-x: auto;
   white-space: nowrap;
   padding: 4px 8px;
+}
+
+.btn-nav-up {
+  padding: 5px 12px;
+  font-size: 12px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+.btn-nav-up:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
 }
 
 .breadcrumb-container::-webkit-scrollbar {
@@ -125,6 +144,23 @@ body.daisydisk-theme {
   background: var(--bg-card-hover);
   color: var(--text-main);
   border-color: var(--accent-blue);
+}
+
+.breadcrumb-item.above-tree {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--text-muted);
+}
+
+.breadcrumb-item.above-tree:hover {
+  border-style: solid;
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.breadcrumb-item .crumb-icon {
+  margin-right: 5px;
+  font-size: 12px;
 }
 
 .breadcrumb-item.active {

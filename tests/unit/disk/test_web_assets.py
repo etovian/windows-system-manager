@@ -24,6 +24,7 @@ def test_web_asset_content_structure():
     assert "quick-paths" in html
     assert "dir-browser-panel" in html
     assert "btn-scan-current-dir" in html
+    assert "btn-visualizer-up" in html
 
     # Prevent CSS specificity bug where inline style overrides active class
     assert 'id="visualizer-view" class="view-panel" style="display: none;"' not in html
@@ -35,6 +36,9 @@ def test_web_asset_content_structure():
     assert "dir-browser-panel" in css
     assert "btn-scan-drive" in css
     assert "browser-crumb" in css
+    assert "btn-nav-up" in css
+    assert "above-tree" in css
+    assert "crumb-icon" in css
 
     js = (web_dir / "app.js").read_text(encoding="utf-8")
     assert "/api/drives" in js
@@ -46,3 +50,7 @@ def test_web_asset_content_structure():
     assert "btn-quick-path" in js
     assert "openDirectoryBrowser" in js
     assert "btn-scan-drive" in js
+    assert "btnVisualizerUp" in js
+    assert "navigateUpOneLevel" in js
+    assert "above-tree" in js
+    assert "Click center to go up" in js

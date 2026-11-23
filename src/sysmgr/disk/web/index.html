@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>sysmgr - DaisyDisk Visualizer</title>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2245%22 fill=%22%2329b6f6%22/></svg>">
 </head>
 <body class="daisydisk-theme">
@@ -17,6 +17,9 @@
 
     <!-- Breadcrumb pills navigation -->
     <nav class="breadcrumb-container" id="breadcrumb-container" style="display: none;">
+      <button type="button" id="btn-visualizer-up" class="btn btn-secondary btn-nav-up" title="Up one level (Alt+Up)">
+        <span class="icon">⬆</span> Up
+      </button>
       <div class="breadcrumb" id="breadcrumb">
         <!-- Rendered breadcrumb items -->
       </div>
