@@ -423,6 +423,9 @@
         .attr("class", "sunburst-arc")
         .attr("fill", (d) => state.colorScale(d.node))
         .attr("fill-opacity", animate ? 0 : 1)
+        .each(function (d) {
+          this._current = { x0: d.x0, x1: d.x1, r0: d.r0, r1: d.r1 };
+        })
         .attr("d", (d) => arc(d))
         .on("mouseenter", function (event, d) {
           highlightItem(d.node);
@@ -454,16 +457,19 @@
           .duration(400)
           .attr("fill-opacity", 1)
           .attrTween("d", function (d) {
-            const prev = this._current || d;
-            const interpolate = d3.interpolate(prev, d);
-            this._current = d;
+            const prev = this._current || { x0: d.x0, x1: d.x1, r0: d.r0, r1: d.r1 };
+            const interpolate = d3.interpolate(
+              { x0: prev.x0, x1: prev.x1, r0: prev.r0, r1: prev.r1 },
+              { x0: d.x0, x1: d.x1, r0: d.r0, r1: d.r1 }
+            );
+            this._current = { x0: d.x0, x1: d.x1, r0: d.r0, r1: d.r1 };
             return (t) => arc(interpolate(t));
           });
       } else {
         update
           .attr("fill-opacity", 1)
           .attr("d", function (d) {
-            this._current = d;
+            this._current = { x0: d.x0, x1: d.x1, r0: d.r0, r1: d.r1 };
             return arc(d);
           });
       }
