@@ -662,6 +662,27 @@
     elements.centerMeta.textContent = subtitle ? subtitle.slice(-28) : "Click slice to drill down";
   }
 
+  // Centralized Path Decomposition Utility
+  function getPathAncestors(targetPath) {
+    if (!targetPath) return { parts: [], parentPath: "", isUnc: false, normalized: "" };
+    const normalized = targetPath.replace(/\//g, "\\");
+    const isUnc = normalized.startsWith("\\\\");
+    const parts = normalized.split("\\").filter(Boolean);
+
+    let parentPath = "";
+    if (parts.length > 1) {
+      const parentParts = parts.slice(0, -1);
+      if (isUnc) {
+        parentPath = `\\\\${parentParts.join("\\")}`;
+      } else if (parentParts.length === 1 && parentParts[0].includes(":")) {
+        parentPath = `${parentParts[0]}\\`;
+      } else {
+        parentPath = parentParts.join("\\");
+      }
+    }
+    return { parts, parentPath, isUnc, normalized };
+  }
+
   function resetCenterBadge() {
     if (!state.focusedNode) return;
     const node = state.focusedNode;
@@ -671,7 +692,7 @@
       elements.centerMeta.textContent = "Click center to go up";
     } else {
       const scanPath = (node.data && node.data.path) || state.activeScanPath || "";
-      const parts = scanPath.replace(/\//g, "\\").split("\\").filter(Boolean);
+      const { parts } = getPathAncestors(scanPath);
       if (parts.length > 1) {
         elements.centerMeta.textContent = "Click center to go up to parent";
       } else {
@@ -697,22 +718,12 @@
       return;
     }
 
-    const normalized = scanRootPath.replace(/\//g, "\\");
-    const parts = normalized.split("\\").filter(Boolean);
+    const { parts, parentPath } = getPathAncestors(scanRootPath);
 
     // If at drive root (e.g. "C:" or "C:\"), go to Computer / All Drives
-    if (parts.length <= 1) {
+    if (parts.length <= 1 || !parentPath) {
       switchToDrives();
       return;
-    }
-
-    // Remove leaf folder to get parent directory
-    parts.pop();
-    let parentPath = "";
-    if (parts[0].includes(":")) {
-      parentPath = parts.length === 1 ? `${parts[0]}\\` : parts.join("\\");
-    } else {
-      parentPath = parts.join("\\");
     }
 
     switchToDrives();
@@ -730,8 +741,7 @@
     elements.breadcrumb.innerHTML = "";
 
     const scanRootPath = state.rootNode ? state.rootNode.data.path : (state.activeScanPath || "");
-    const normalizedRoot = (scanRootPath || "").replace(/\//g, "\\");
-    const rootParts = normalizedRoot.split("\\").filter(Boolean);
+    const { parts: rootParts, isUnc } = getPathAncestors(scanRootPath);
 
     function appendSeparator() {
       const sep = document.createElement("span");
@@ -756,14 +766,16 @@
     for (let i = 0; i < rootParts.length - 1; i++) {
       appendSeparator();
       const part = rootParts[i];
-      if (i === 0 && part.includes(":")) {
+      if (i === 0 && isUnc) {
+        accumulated = `\\\\${part}`;
+      } else if (i === 0 && part.includes(":")) {
         accumulated = `${part}\\`;
       } else {
         accumulated = accumulated.endsWith("\\") ? `${accumulated}${part}` : `${accumulated}\\${part}`;
       }
 
       const targetPath = accumulated;
-      const isDrive = i === 0 && part.includes(":");
+      const isDrive = (i === 0 && part.includes(":")) || (isUnc && i === 1);
       const icon = isDrive ? "💽" : "📁";
 
       const crumb = document.createElement("button");
@@ -790,7 +802,7 @@
         ? (rootParts[rootParts.length - 1] || node.data.name || node.data.path)
         : (node.data.name || node.data.path);
       const isDir = node.data.is_dir || (node.children && node.children.length > 0);
-      const icon = isDir ? "📁" : "📄";
+      const icon = (isDir && !nodeName.includes(":")) ? "📁" : isDir ? "💽" : "📄";
 
       const pill = document.createElement("button");
       pill.type = "button";
@@ -1073,6 +1085,9 @@
   // Keyboard navigation: Alt+Up or Backspace to go up a level in visualizer
   document.addEventListener("keydown", (e) => {
     if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+    if (elements.scanOverlay && elements.scanOverlay.classList.contains("active")) return;
+    if (elements.propertiesModal && elements.propertiesModal.open) return;
+
     if (elements.visualizerView && elements.visualizerView.classList.contains("active")) {
       if ((e.altKey && e.key === "ArrowUp") || e.key === "Backspace") {
         e.preventDefault();

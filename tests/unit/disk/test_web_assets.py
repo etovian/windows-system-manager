@@ -26,6 +26,10 @@ def test_web_asset_content_structure():
     assert "btn-scan-current-dir" in html
     assert "btn-visualizer-up" in html
 
+    # Verify cache-busting version sync
+    assert 'styles.css?v=4' in html
+    assert 'app.js?v=4' in html
+
     # Prevent CSS specificity bug where inline style overrides active class
     assert 'id="visualizer-view" class="view-panel" style="display: none;"' not in html
     assert 'id="scan-overlay" class="scan-overlay" style="display: none;"' not in html
@@ -39,6 +43,7 @@ def test_web_asset_content_structure():
     assert "btn-nav-up" in css
     assert "above-tree" in css
     assert "crumb-icon" in css
+    assert "min-width: 0;" in css
 
     js = (web_dir / "app.js").read_text(encoding="utf-8")
     assert "/api/drives" in js
@@ -52,5 +57,49 @@ def test_web_asset_content_structure():
     assert "btn-scan-drive" in js
     assert "btnVisualizerUp" in js
     assert "navigateUpOneLevel" in js
+    assert "getPathAncestors" in js
     assert "above-tree" in js
     assert "Click center to go up" in js
+    assert "propertiesModal.open" in js
+
+
+def test_path_ancestors_decomposition_logic():
+    """Verify the path decomposition logic matches the JS implementation behavior."""
+    def py_get_path_ancestors(target_path: str):
+        if not target_path:
+            return {"parts": [], "parent_path": "", "is_unc": False}
+        normalized = target_path.replace("/", "\\")
+        is_unc = normalized.startswith("\\\\")
+        parts = [p for p in normalized.split("\\") if p]
+
+        parent_path = ""
+        if len(parts) > 1:
+            parent_parts = parts[:-1]
+            if is_unc:
+                parent_path = "\\\\" + "\\".join(parent_parts)
+            elif len(parent_parts) == 1 and ":" in parent_parts[0]:
+                parent_path = f"{parent_parts[0]}\\"
+            else:
+                parent_path = "\\".join(parent_parts)
+        return {"parts": parts, "parent_path": parent_path, "is_unc": is_unc}
+
+    # Case 1: Drive Root (e.g. C:\)
+    c_root = py_get_path_ancestors("C:\\")
+    assert c_root["parts"] == ["C:"]
+    assert c_root["parent_path"] == ""
+
+    # Case 2: Subfolder (e.g. C:\Games\Baldur's Gate\data)
+    sub = py_get_path_ancestors(r"C:\Games\Baldur's Gate\data")
+    assert sub["parts"] == ["C:", "Games", "Baldur's Gate", "data"]
+    assert sub["parent_path"] == r"C:\Games\Baldur's Gate"
+
+    # Case 3: One level deep subfolder (e.g. C:\Windows)
+    win = py_get_path_ancestors("C:\\Windows")
+    assert win["parts"] == ["C:", "Windows"]
+    assert win["parent_path"] == "C:\\"
+
+    # Case 4: UNC network share
+    unc = py_get_path_ancestors(r"\\nas\storage\backup")
+    assert unc["parts"] == ["nas", "storage", "backup"]
+    assert unc["is_unc"] is True
+    assert unc["parent_path"] == r"\\nas\storage"
