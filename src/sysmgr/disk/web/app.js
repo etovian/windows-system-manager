@@ -262,7 +262,9 @@
       elements.browserBreadcrumbs.appendChild(crumb);
     });
 
-    // Wire up "Scan This Folder" button in header
+    // Wire up "Scan This Folder" button in header with dynamic name
+    const leafName = parts[parts.length - 1] || dirPath;
+    elements.btnScanCurrentDir.innerHTML = `⚡ Scan "${escapeHtml(leafName)}"`;
     elements.btnScanCurrentDir.onclick = () => {
       startScan(dirPath);
     };
@@ -286,7 +288,8 @@
       row.innerHTML = `
         <div class="browser-row-left" title="${safePath}">
           <span class="browser-row-icon">${icon}</span>
-          <span class="browser-row-name">${safeName} ${item.access_denied ? "<small style='color: var(--text-dim)'>(Access Denied)</small>" : ""}</span>
+          <span class="browser-row-name">${safeName}</span>
+          ${item.access_denied ? "<span style='font-size: 11px; color: var(--accent-red); margin-left: 6px;'>Locked</span>" : ""}
         </div>
         <div class="browser-row-right">
           ${item.is_dir && !item.access_denied ? `
