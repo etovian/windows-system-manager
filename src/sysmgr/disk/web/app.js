@@ -41,6 +41,7 @@
     drivesList: document.getElementById("drives-list"),
     dirBrowserPanel: document.getElementById("dir-browser-panel"),
     btnBrowserBack: document.getElementById("btn-browser-back"),
+    browserBreadcrumbContainer: document.getElementById("browser-breadcrumb-container"),
     browserBreadcrumbs: document.getElementById("browser-breadcrumbs"),
     btnScanCurrentDir: document.getElementById("btn-scan-current-dir"),
     browserItemsList: document.getElementById("browser-items-list"),
@@ -219,28 +220,34 @@
   function renderBrowserBreadcrumbs(dirPath) {
     elements.browserBreadcrumbs.innerHTML = "";
 
-    // Home / Computer button
+    function appendSeparator() {
+      const sep = document.createElement("span");
+      sep.className = "breadcrumb-separator";
+      sep.textContent = "›";
+      elements.browserBreadcrumbs.appendChild(sep);
+    }
+
+    // 1. Home / Computer button
     const homeBtn = document.createElement("button");
-    homeBtn.className = "browser-crumb";
-    homeBtn.textContent = "Computer";
+    homeBtn.type = "button";
+    homeBtn.className = "breadcrumb-item";
+    homeBtn.innerHTML = `<span class="crumb-icon">💻</span>Computer`;
+    homeBtn.title = "Return to All Drives";
     homeBtn.addEventListener("click", () => {
       closeDirectoryBrowser();
     });
     elements.browserBreadcrumbs.appendChild(homeBtn);
 
-    // Normalize path separators
-    const normalized = dirPath.replace(/\//g, "\\");
-    const parts = normalized.split("\\").filter(Boolean);
+    // 2. Folder crumbs using centralized getPathAncestors
+    const { parts, isUnc } = getPathAncestors(dirPath);
 
     let accumulated = "";
     parts.forEach((part, idx) => {
-      const sep = document.createElement("span");
-      sep.className = "browser-crumb-sep";
-      sep.textContent = "›";
-      elements.browserBreadcrumbs.appendChild(sep);
+      appendSeparator();
 
-      // Handle root drive (e.g. C:)
-      if (idx === 0 && part.includes(":")) {
+      if (idx === 0 && isUnc) {
+        accumulated = `\\\\${part}`;
+      } else if (idx === 0 && part.includes(":")) {
         accumulated = `${part}\\`;
       } else {
         accumulated = accumulated.endsWith("\\") ? `${accumulated}${part}` : `${accumulated}\\${part}`;
@@ -248,10 +255,13 @@
 
       const targetPath = accumulated;
       const isLast = idx === parts.length - 1;
+      const isDrive = (idx === 0 && part.includes(":")) || (isUnc && idx === 1);
+      const icon = isDrive ? "💽" : "📁";
 
       const crumb = document.createElement("button");
-      crumb.className = `browser-crumb ${isLast ? "active" : ""}`;
-      crumb.textContent = part;
+      crumb.type = "button";
+      crumb.className = `breadcrumb-item ${isLast ? "active" : ""}`;
+      crumb.innerHTML = `<span class="crumb-icon">${icon}</span>${escapeHtml(part)}`;
       crumb.title = targetPath;
 
       if (!isLast) {
@@ -269,6 +279,11 @@
     elements.btnScanCurrentDir.onclick = () => {
       startScan(dirPath);
     };
+
+    // Auto-scroll breadcrumbs to right end
+    if (elements.browserBreadcrumbContainer) {
+      elements.browserBreadcrumbContainer.scrollLeft = elements.browserBreadcrumbContainer.scrollWidth;
+    }
   }
 
   function renderBrowserItems(data) {
