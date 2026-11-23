@@ -12,6 +12,7 @@
     rootNode: null,
     focusedNode: null,
     activeScanPath: "",
+    currentBrowsePath: "",
     eventSource: null,
     selectedContextItem: null,
     colorScale: null,
@@ -38,6 +39,11 @@
     drivesView: document.getElementById("drives-view"),
     visualizerView: document.getElementById("visualizer-view"),
     drivesList: document.getElementById("drives-list"),
+    dirBrowserPanel: document.getElementById("dir-browser-panel"),
+    btnBrowserBack: document.getElementById("btn-browser-back"),
+    browserBreadcrumbs: document.getElementById("browser-breadcrumbs"),
+    btnScanCurrentDir: document.getElementById("btn-scan-current-dir"),
+    browserItemsList: document.getElementById("browser-items-list"),
     customPathForm: document.getElementById("custom-path-form"),
     customPathInput: document.getElementById("custom-path-input"),
     btnRescan: document.getElementById("btn-rescan"),
@@ -142,24 +148,172 @@
       const safeLabel = escapeHtml(drive.label || drive.fstype);
 
       card.innerHTML = `
-        <div class="drive-header">
-          <span class="drive-mount">${safeMount}</span>
-          <span class="drive-label" title="${safeLabel}">${safeLabel}</span>
-        </div>
-        <div class="drive-capacity-track">
-          <div class="drive-capacity-fill" style="width: ${pct}%; background: ${barColor};"></div>
-        </div>
-        <div class="drive-stats">
-          <span>${pct}% used</span>
-          <span>${formatBytes(drive.free_bytes)} free of ${formatBytes(drive.total_bytes)}</span>
+        <div class="drive-main-row">
+          <div class="drive-info-col">
+            <div class="drive-header">
+              <span class="drive-mount">${safeMount}</span>
+              <span class="drive-label" title="${safeLabel}">${safeLabel}</span>
+            </div>
+            <div class="drive-capacity-track">
+              <div class="drive-capacity-fill" style="width: ${pct}%; background: ${barColor};"></div>
+            </div>
+            <div class="drive-stats">
+              <span>${pct}% used</span>
+              <span>${formatBytes(drive.free_bytes)} free of ${formatBytes(drive.total_bytes)}</span>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary btn-scan-drive" title="Scan entire ${safeMount} drive">
+            ⚡ Scan Drive
+          </button>
         </div>
       `;
 
+      // Dedicated scan button
+      const scanBtn = card.querySelector(".btn-scan-drive");
+      if (scanBtn) {
+        scanBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          startScan(drive.mountpoint);
+        });
+      }
+
+      // Clicking anywhere else on the card opens the directory browser
       card.addEventListener("click", () => {
-        startScan(drive.mountpoint);
+        openDirectoryBrowser(drive.mountpoint);
       });
 
       elements.drivesList.appendChild(card);
+    });
+  }
+
+  // Shallow Directory Browser
+  async function openDirectoryBrowser(dirPath) {
+    state.currentBrowsePath = dirPath;
+    elements.drivesList.style.display = "none";
+    elements.dirBrowserPanel.style.display = "flex";
+    elements.browserItemsList.innerHTML = `<div class="browser-empty">Loading folders in ${escapeHtml(dirPath)}...</div>`;
+
+    renderBrowserBreadcrumbs(dirPath);
+
+    try {
+      const res = await fetch(`/api/browse?path=${encodeURIComponent(dirPath)}`);
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      renderBrowserItems(data);
+    } catch (err) {
+      elements.browserItemsList.innerHTML = `<div class="browser-empty" style="color: var(--accent-red);">Failed to open folder: ${escapeHtml(err.message)}</div>`;
+      showToast(`Browse error: ${err.message}`, "error");
+    }
+  }
+
+  function closeDirectoryBrowser() {
+    elements.dirBrowserPanel.style.display = "none";
+    elements.drivesList.style.display = "grid";
+    state.currentBrowsePath = "";
+  }
+
+  function renderBrowserBreadcrumbs(dirPath) {
+    elements.browserBreadcrumbs.innerHTML = "";
+
+    // Home / Computer button
+    const homeBtn = document.createElement("button");
+    homeBtn.className = "browser-crumb";
+    homeBtn.textContent = "Computer";
+    homeBtn.addEventListener("click", () => {
+      closeDirectoryBrowser();
+    });
+    elements.browserBreadcrumbs.appendChild(homeBtn);
+
+    // Normalize path separators
+    const normalized = dirPath.replace(/\//g, "\\");
+    const parts = normalized.split("\\").filter(Boolean);
+
+    let accumulated = "";
+    parts.forEach((part, idx) => {
+      const sep = document.createElement("span");
+      sep.className = "browser-crumb-sep";
+      sep.textContent = "›";
+      elements.browserBreadcrumbs.appendChild(sep);
+
+      // Handle root drive (e.g. C:)
+      if (idx === 0 && part.includes(":")) {
+        accumulated = `${part}\\`;
+      } else {
+        accumulated = accumulated.endsWith("\\") ? `${accumulated}${part}` : `${accumulated}\\${part}`;
+      }
+
+      const targetPath = accumulated;
+      const isLast = idx === parts.length - 1;
+
+      const crumb = document.createElement("button");
+      crumb.className = `browser-crumb ${isLast ? "active" : ""}`;
+      crumb.textContent = part;
+      crumb.title = targetPath;
+
+      if (!isLast) {
+        crumb.addEventListener("click", () => {
+          openDirectoryBrowser(targetPath);
+        });
+      }
+
+      elements.browserBreadcrumbs.appendChild(crumb);
+    });
+
+    // Wire up "Scan This Folder" button in header
+    elements.btnScanCurrentDir.onclick = () => {
+      startScan(dirPath);
+    };
+  }
+
+  function renderBrowserItems(data) {
+    if (!data.items || data.items.length === 0) {
+      elements.browserItemsList.innerHTML = `<div class="browser-empty">This folder is empty or contains no accessible items.</div>`;
+      return;
+    }
+
+    elements.browserItemsList.innerHTML = "";
+    data.items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = `browser-row ${item.access_denied ? "access-denied" : ""}`;
+
+      const icon = item.access_denied ? "🔒" : item.is_dir ? "📁" : "📄";
+      const safeName = escapeHtml(item.name);
+      const safePath = escapeHtml(item.path);
+
+      row.innerHTML = `
+        <div class="browser-row-left" title="${safePath}">
+          <span class="browser-row-icon">${icon}</span>
+          <span class="browser-row-name">${safeName} ${item.access_denied ? "<small style='color: var(--text-dim)'>(Access Denied)</small>" : ""}</span>
+        </div>
+        <div class="browser-row-right">
+          ${item.is_dir && !item.access_denied ? `
+            <button type="button" class="btn btn-secondary btn-scan-folder" title="Scan ${safeName}">
+              ⚡ Scan
+            </button>
+          ` : ""}
+        </div>
+      `;
+
+      // Scan subfolder button
+      const rowScanBtn = row.querySelector(".btn-scan-folder");
+      if (rowScanBtn) {
+        rowScanBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          startScan(item.path);
+        });
+      }
+
+      // Clicking folder row navigates into it
+      if (item.is_dir && !item.access_denied) {
+        row.addEventListener("click", () => {
+          openDirectoryBrowser(item.path);
+        });
+      }
+
+      elements.browserItemsList.appendChild(row);
     });
   }
 
@@ -316,6 +470,7 @@
     elements.btnRescan.style.display = "none";
     elements.btnChangeSource.style.display = "none";
     elements.breadcrumbContainer.style.display = "none";
+    closeDirectoryBrowser();
     fetchDrives();
   }
 
@@ -806,6 +961,12 @@
   elements.btnCancelScan.addEventListener("click", () => {
     cancelScan();
   });
+
+  if (elements.btnBrowserBack) {
+    elements.btnBrowserBack.addEventListener("click", () => {
+      closeDirectoryBrowser();
+    });
+  }
 
   // Window Resize: re-center / re-render sunburst
   window.addEventListener("resize", () => {

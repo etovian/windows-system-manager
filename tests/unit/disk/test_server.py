@@ -143,3 +143,43 @@ def test_static_files_mount(tmp_path):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "DaisyDisk Visualizer" in resp.text
+
+
+def test_api_browse_endpoint_missing_path(client):
+    resp = client.get("/api/browse")
+    assert resp.status_code == 400
+    assert "required" in resp.json()["error"].lower()
+
+
+def test_api_browse_endpoint_nonexistent_path(client):
+    resp = client.get("/api/browse?path=C:\\nonexistent_dir_12345")
+    assert resp.status_code == 404
+    assert "does not exist" in resp.json()["error"]
+
+
+def test_api_browse_endpoint_file_path(client, tmp_path):
+    f = tmp_path / "sample.txt"
+    f.write_text("hello", encoding="utf-8")
+    resp = client.get(f"/api/browse?path={f}")
+    assert resp.status_code == 400
+    assert "not a directory" in resp.json()["error"]
+
+
+def test_api_browse_endpoint_success(client, tmp_path):
+    sub = tmp_path / "subdir"
+    sub.mkdir()
+    f = tmp_path / "file.txt"
+    f.write_text("content", encoding="utf-8")
+
+    resp = client.get(f"/api/browse?path={tmp_path}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current_path"] == str(tmp_path)
+    assert data["access_denied"] is False
+    assert len(data["items"]) == 2
+    # Directories sorted first
+    assert data["items"][0]["name"] == "subdir"
+    assert data["items"][0]["is_dir"] is True
+    assert data["items"][1]["name"] == "file.txt"
+    assert data["items"][1]["is_dir"] is False
+

@@ -22,6 +22,8 @@ def test_web_asset_content_structure():
     assert "breadcrumb" in html.lower()
     assert "scan-log-box" in html
     assert "quick-paths" in html
+    assert "dir-browser-panel" in html
+    assert "btn-scan-current-dir" in html
 
     # Prevent CSS specificity bug where inline style overrides active class
     assert 'id="visualizer-view" class="view-panel" style="display: none;"' not in html
@@ -30,11 +32,17 @@ def test_web_asset_content_structure():
     css = (web_dir / "styles.css").read_text(encoding="utf-8")
     assert "scan-log-box" in css
     assert "quick-paths" in css
+    assert "dir-browser-panel" in css
+    assert "btn-scan-drive" in css
+    assert "browser-crumb" in css
 
     js = (web_dir / "app.js").read_text(encoding="utf-8")
     assert "/api/drives" in js
+    assert "/api/browse" in js
     assert "/api/scan" in js
     assert "/api/actions" in js
     assert "scanLogBox" in js
     assert "getVisibleArcs" in js
     assert "btn-quick-path" in js
+    assert "openDirectoryBrowser" in js
+    assert "btn-scan-drive" in js

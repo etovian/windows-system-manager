@@ -47,6 +47,24 @@
         <div class="loading-spinner">Loading mounted drives...</div>
       </div>
 
+      <!-- Shallow Subfolder Browser Panel -->
+      <div id="dir-browser-panel" class="dir-browser-panel" style="display: none;">
+        <div class="browser-header">
+          <button type="button" id="btn-browser-back" class="btn btn-secondary">
+            <span class="icon">←</span> All Drives
+          </button>
+          <div class="browser-breadcrumbs" id="browser-breadcrumbs">
+            <!-- Breadcrumbs generated dynamically -->
+          </div>
+          <button type="button" id="btn-scan-current-dir" class="btn btn-primary">
+            ⚡ Scan This Folder
+          </button>
+        </div>
+        <div class="browser-items-list" id="browser-items-list">
+          <!-- Folder rows generated dynamically -->
+        </div>
+      </div>
+
       <div class="custom-path-box">
         <h3>Or Scan a Specific Directory</h3>
         <form id="custom-path-form" class="custom-path-form">

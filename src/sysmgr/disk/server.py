@@ -206,6 +206,67 @@ async def get_scan_tree(request: Request) -> JSONResponse:
     return JSONResponse(None)
 
 
+async def browse_directory(request: Request) -> JSONResponse:
+    """Return shallow directory entries for fast subfolder exploration."""
+    target_path = request.query_params.get("path")
+    if not target_path or not target_path.strip():
+        return JSONResponse({"error": "Path parameter is required"}, status_code=400)
+
+    target_path = os.path.abspath(target_path.strip())
+    if not os.path.exists(target_path):
+        return JSONResponse({"error": f"Path '{target_path}' does not exist"}, status_code=404)
+    if not os.path.isdir(target_path):
+        return JSONResponse({"error": f"Path '{target_path}' is not a directory"}, status_code=400)
+
+    def scan_shallow(p: str) -> dict:
+        items = []
+        try:
+            with os.scandir(p) as it:
+                for entry in it:
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=False)
+                        items.append(
+                            {
+                                "name": entry.name,
+                                "path": entry.path,
+                                "is_dir": is_dir,
+                                "access_denied": False,
+                            }
+                        )
+                    except (PermissionError, OSError):
+                        items.append(
+                            {
+                                "name": entry.name,
+                                "path": entry.path,
+                                "is_dir": True,
+                                "access_denied": True,
+                            }
+                        )
+        except (PermissionError, OSError):
+            parent = os.path.dirname(p)
+            return {
+                "current_path": p,
+                "parent_path": parent if parent != p else None,
+                "access_denied": True,
+                "items": [],
+            }
+
+        items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+        parent = os.path.dirname(p)
+        if parent == p:
+            parent = None
+
+        return {
+            "current_path": p,
+            "parent_path": parent,
+            "access_denied": False,
+            "items": items,
+        }
+
+    data = await asyncio.to_thread(scan_shallow, target_path)
+    return JSONResponse(data)
+
+
 async def handle_actions(request: Request) -> JSONResponse:
     """Validate and execute file operation or remediation action."""
     try:
@@ -223,6 +284,7 @@ def create_disk_app(web_dir: Optional[str] = None) -> Starlette:
     """Create and configure the Starlette application with REST routes, SSE, and static assets."""
     routes = [
         Route("/api/drives", get_drives, methods=["GET"]),
+        Route("/api/browse", browse_directory, methods=["GET"]),
         Route("/api/scan", start_scan, methods=["POST"]),
         Route("/api/scan/cancel", cancel_scan, methods=["POST"]),
         Route("/api/scan/progress", scan_progress_stream, methods=["GET"]),
