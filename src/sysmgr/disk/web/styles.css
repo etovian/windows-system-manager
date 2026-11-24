@@ -352,11 +352,34 @@ body.daisydisk-theme {
 
 .browser-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 12px;
   width: 100%;
   box-sizing: border-box;
+}
+
+.browser-breadcrumb-track {
+  width: 100%;
+  overflow: visible;
+  white-space: normal;
+  padding: 0;
+}
+
+.browser-breadcrumb-track .breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  width: 100%;
+}
+
+.browser-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 #btn-browser-back {
@@ -369,12 +392,10 @@ body.daisydisk-theme {
   font-weight: 600;
 }
 
-
-
 #btn-scan-current-dir {
   flex-shrink: 0;
   white-space: nowrap;
-  padding: 8px 18px;
+  padding: 8px 20px;
   font-size: 13px;
   font-weight: 600;
   box-shadow: 0 2px 12px rgba(41, 182, 246, 0.3);

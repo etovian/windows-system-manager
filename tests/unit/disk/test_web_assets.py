@@ -26,10 +26,12 @@ def test_web_asset_content_structure():
     assert "btn-scan-current-dir" in html
     assert "btn-visualizer-up" in html
     assert "browser-breadcrumb-container" in html
+    assert "browser-actions-bar" in html
+    assert "Scan this Directory" in html
 
     # Verify cache-busting version sync
-    assert 'styles.css?v=5' in html
-    assert 'app.js?v=5' in html
+    assert 'styles.css?v=6' in html
+    assert 'app.js?v=6' in html
 
     # Prevent CSS specificity bug where inline style overrides active class
     assert 'id="visualizer-view" class="view-panel" style="display: none;"' not in html
@@ -39,6 +41,8 @@ def test_web_asset_content_structure():
     assert "scan-log-box" in css
     assert "quick-paths" in css
     assert "dir-browser-panel" in css
+    assert "browser-actions-bar" in css
+    assert "browser-breadcrumb-track" in css
     assert "btn-scan-drive" in css
     assert "browser-crumb" not in css
     assert "btn-nav-up" in css
@@ -51,6 +55,7 @@ def test_web_asset_content_structure():
     assert "/api/browse" in js
     assert "/api/scan" in js
     assert "/api/actions" in js
+    assert "Scan this Directory" in js
     assert "scanLogBox" in js
     assert "getVisibleArcs" in js
     assert "btn-quick-path" in js

@@ -276,17 +276,11 @@
       elements.browserBreadcrumbs.appendChild(crumb);
     });
 
-    // Wire up "Scan This Folder" button in header with dynamic name
-    const leafName = parts[parts.length - 1] || dirPath;
-    elements.btnScanCurrentDir.innerHTML = `⚡ Scan "${escapeHtml(leafName)}"`;
+    // Wire up "Scan this Directory" button in header with hardcoded text
+    elements.btnScanCurrentDir.innerHTML = `<span class="icon">⚡</span> Scan this Directory`;
     elements.btnScanCurrentDir.onclick = () => {
       startScan(dirPath);
     };
-
-    // Auto-scroll breadcrumbs to right end
-    if (elements.browserBreadcrumbContainer) {
-      elements.browserBreadcrumbContainer.scrollLeft = elements.browserBreadcrumbContainer.scrollWidth;
-    }
   }
 
   function renderBrowserItems(data) {
