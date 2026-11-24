@@ -169,6 +169,7 @@ body.daisydisk-theme {
   border-color: var(--accent-blue);
   color: var(--accent-blue);
   font-weight: 600;
+  cursor: default;
 }
 
 .breadcrumb-separator {

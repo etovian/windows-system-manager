@@ -261,6 +261,9 @@
       const crumb = document.createElement("button");
       crumb.type = "button";
       crumb.className = `breadcrumb-item ${isLast ? "active" : ""}`;
+      if (isLast) {
+        crumb.setAttribute("aria-current", "location");
+      }
       crumb.innerHTML = `<span class="crumb-icon">${icon}</span>${escapeHtml(part)}`;
       crumb.title = targetPath;
 
@@ -822,6 +825,9 @@
       const pill = document.createElement("button");
       pill.type = "button";
       pill.className = `breadcrumb-item ${isCurrent ? "active" : ""}`;
+      if (isCurrent) {
+        pill.setAttribute("aria-current", "location");
+      }
       pill.innerHTML = `<span class="crumb-icon">${icon}</span>${escapeHtml(nodeName)}`;
       pill.title = node.data.path;
 
