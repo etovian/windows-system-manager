@@ -373,6 +373,13 @@ body.daisydisk-theme {
   width: 100%;
 }
 
+.browser-breadcrumb-track .breadcrumb-item {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .browser-actions-bar {
   display: flex;
   align-items: center;
