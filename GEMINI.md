@@ -94,6 +94,11 @@ sysmgr knowledge smart-health-monitoring.md
 ### Virtual Environment & Dependencies
 Managed via `uv` with Python 3.11+. The local virtual environment resides in `.venv`.
 
+### Global CLI Tool (`sysmgr.exe` via `uv tool`) & Process Locking
+- **`sysmgr` is installed in editable mode**: Installed via `uv tool install --force --editable .`, which links directly to `c:\dev\system-manager\src`. All code, probe, and web asset changes are live immediately without reinstalling.
+- **NEVER run `uv tool install` while `sysmgr` is running**: On Windows, running `sysmgr` processes lock their `.exe` files in `AppData\Roaming\uv\tools\sysmgr\Scripts`. Running `uv tool install` while locked causes uv to wipe package metadata and fail with `Access is denied (os error 5)`, corrupting the tool environment with `No module named 'sysmgr'`.
+- **Always terminate before tool maintenance**: If reinstalling the tool is necessary, always run `Stop-Process -Name sysmgr, python -Force -ErrorAction SilentlyContinue` first, then run `uv tool install --force --editable .` outside the sandbox (`BypassSandbox: true`).
+
 ### Running Tests
 All tests are configured to run completely local, sandboxed, and offline:
 ```powershell
